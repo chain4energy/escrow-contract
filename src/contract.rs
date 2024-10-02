@@ -1,9 +1,13 @@
-use cosmwasm_std::{coins, Coin, Decimal, Order, Response, StdError, StdResult};
+use cosmwasm_std::{coins, Addr, Coin, Decimal, Order, Response, StdError, StdResult};
 use cw_storage_plus::{Bound, Map, MultiIndex};
 use sylvia::{contract, entry_points};
 use sylvia::types::{InstantiateCtx, QueryCtx, ExecCtx};
 use crate::error::ContractError;
 use crate::state::{escrows, Escrow, EscrowOperator, EscrowState};
+use did_contract::contract::DidContract;
+use did_contract::state::DidDocument;
+use did_contract::contract::sv::Querier;
+use sylvia::types::Remote;
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
@@ -25,6 +29,17 @@ impl EscrowContract {
     #[sv::msg(instantiate)]
     pub fn instantiate(&self, _ctx: InstantiateCtx) -> StdResult<Response> {
         Ok(Response::default())
+    }
+
+    #[sv::msg(query)]
+    pub fn get_did(&self, ctx: QueryCtx, addr: Addr, did: String) -> Result<DidDocument, ContractError> {
+
+        let result = Remote::<DidContract>::new(addr).querier(&ctx.deps.querier)
+                .get_did_document(did);
+        match result {
+            Ok(r) => Ok(r),
+            Err(e) => Err(ContractError::EscrowError(e)),
+        }        
     }
 
     #[sv::msg(query)]
@@ -303,6 +318,96 @@ mod tests {
     use sylvia::multitest::App;
 
     use crate::{contract::sv::mt::{CodeId, EscrowContractProxy}, state::{Escrow, EscrowOperator, EscrowState}/* , state::{Did, DidDocument, Service}*/};
+
+    use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, sv::mt::DidContractProxy, DidContract};
+    use did_contract::state::{DidDocument, Did, Service};
+    
+    // #[test]
+    // fn get_document_not_found() {
+    //     let app = App::default();
+    //     let code_id = CodeId::store_code(&app);
+    
+    //     let owner = "owner".into_addr();
+    
+    //     let contract = code_id.instantiate().call(&owner).unwrap();
+    
+    //     let did = "did";
+    //     let no_did = contract.get_did_document(did.to_string());
+    //     assert!(no_did.is_err(), "Expected Err, but got an Ok");
+    //     assert_eq!("Generic error: Querier contract error: Did document not found", no_did.err().unwrap().to_string());
+    // }
+
+    // #[test]
+    // fn create_and_get_document() {
+    //     let app = App::default();
+    //     let code_id = CodeId::store_code(&app);
+    
+    //     let owner = "owner".into_addr();
+    
+    //     let contract = code_id.instantiate().call(&owner).unwrap();
+    
+    //     // let did_owner = "did_owner";
+    //     let did = "new_did";
+    //     let new_did_doc = DidDocument{
+    //         id: Did::new(did),
+    //         controller: vec![Did::new(owner.as_str())],
+    //         service: vec![Service{
+    //             a_type: "".to_string(),
+    //             id: Did::new("dfdsfs"),
+    //             service_endpoint: "dfdsfs".to_string()
+    //         }]
+    //     };
+    //     let result = contract.create_did_document(new_did_doc.clone()).call(&owner);
+    //     assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    //     let did_document = contract.get_did_document(did.to_string()).unwrap();
+    //     assert_eq!(new_did_doc.clone(), did_document.clone());
+    // }
+
+    #[test]
+    fn get_did_not_found_TEMPORARY() {
+        let app = App::default();
+        let owner = "owner".into_addr();
+
+        let escrow_code_id = CodeId::store_code(&app);
+        let escrow_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, crate::contract::EscrowContract> = escrow_code_id.instantiate().call(&owner).unwrap();
+    
+        let did_code_id = DidContractCodeId::store_code(&app);
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
+        
+        let did = "did";
+        let no_did = escrow_contract.get_did(did_contract.contract_addr, did.to_string());
+        assert!(no_did.is_err(), "Expected Err, but got an Ok");
+        assert_eq!("Generic error: Querier contract error: Escrow error", no_did.err().unwrap().to_string());
+    }
+
+    #[test]
+    fn create_and_get_document_TEMPORARY() {
+        let app = App::default();
+        let owner = "owner".into_addr();
+
+        let escrow_code_id = CodeId::store_code(&app);
+        let escrow_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, crate::contract::EscrowContract> = escrow_code_id.instantiate().call(&owner).unwrap();
+    
+        let did_code_id = DidContractCodeId::store_code(&app);
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
+        
+        let did = "new_did";
+        let new_did_doc = DidDocument{
+            id: Did::new(did),
+            controller: vec![Did::new(owner.as_str())],
+            service: vec![Service{
+                a_type: "".to_string(),
+                id: Did::new("dfdsfs"),
+                service_endpoint: "dfdsfs".to_string()
+            }]
+        };
+        let result = did_contract.create_did_document(new_did_doc.clone()).call(&owner);
+        assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+        let did_document = escrow_contract.get_did(did_contract.contract_addr, did.to_string()).unwrap();
+        assert_eq!(new_did_doc.clone(), did_document.clone());
+    }
 
     #[test]
     fn get_operator_not_found() {

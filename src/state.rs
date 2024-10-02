@@ -5,11 +5,6 @@ use constcat::concat as constcat;
 use cosmwasm_std::{Coin, Decimal, Addr};
 use cw_storage_plus::{Index, IndexList, IndexedMap, MultiIndex};
 
-
-
-const DID_PREFIX: &str = "c4e:did:c4e:";
-const ADDRESS_DID_PREFIX: &str = constcat!(DID_PREFIX, "address:");
-
 #[cw_serde]
 pub struct EscrowOperator {
     pub id: String,
@@ -50,8 +45,37 @@ pub enum EscrowState {
     Closed
 }
 
+impl EscrowState {
+    fn state_name(&self) -> String{
+        let g = self;
+        match g {
+            EscrowState::Loading => "loading".to_string(),
+            EscrowState::Locked => "locked".to_string(),
+            EscrowState::Released { used_coins: _ } => "released".to_string(),
+            EscrowState::Closed => "closed".to_string(),
+        }
+    }
+}
+
+impl Escrow {
+    fn receiver_state_index(&self) -> String{
+        let mut r = self.receiver.clone();
+        r.push_str(self.state.state_name().as_str());
+        r
+    }
+
+    fn operator_state_index(&self) -> String{
+        let mut r = self.operator_id.clone();
+        r.push_str(self.state.state_name().as_str());
+        r
+    }
+}
+
 pub struct EscrowIndexes<'a> {
     pub operator: MultiIndex<'a, String, Escrow, String>,
+    pub receiver: MultiIndex<'a, String, Escrow, String>,
+    pub operator_state: MultiIndex<'a, String, Escrow, String>,
+    pub receiver_state: MultiIndex<'a, String, Escrow, String>,
   }
   
   impl<'a> IndexList<Escrow> for EscrowIndexes<'a> {
@@ -67,6 +91,22 @@ pub struct EscrowIndexes<'a> {
         |_pk, d: &Escrow| d.operator_id.clone(),
         "escrows",
         "escrow_operator",
+      ),
+      receiver: MultiIndex::new(
+        |_pk, d: &Escrow| d.receiver.clone(),
+        "escrows",
+        "escrow_receiver",
+      ),
+
+      operator_state: MultiIndex::new(
+        |_pk, d: &Escrow| d.operator_state_index(),
+        "escrows",
+        "escrow_operator_state",
+      ),
+      receiver_state: MultiIndex::new(
+        |_pk, d: &Escrow| d.receiver_state_index(),
+        "escrows",
+        "escrow_receiver_state",
       ),
     };
     IndexedMap::new("escrows", indexes)
