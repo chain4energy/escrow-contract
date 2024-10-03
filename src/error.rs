@@ -6,6 +6,12 @@ pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
 
+    #[error("Unauhotized")]
+    Unauthorized(),
+
+    #[error("Admin not found")]
+    AdminNotFound(),
+
     #[error("Escrow operator not found")]
     EscrowOperatorNotFound(StdError),
 
