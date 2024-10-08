@@ -13,7 +13,7 @@ pub enum ContractError {
     #[error("{0}")]
     CoinsError(#[from] CoinsError),
 
-    #[error("Unauhotized")]
+    #[error("Unauthorized")]
     Unauthorized(),
 
     #[error("Admin not found")]
@@ -46,7 +46,7 @@ pub enum ContractError {
     #[error("Did document - wrong owner")]
     DidDocumentWrongOwner,
 
-    #[error("Operator already existsr")]
+    #[error("Operator already exists")]
     OperatorAlreadyExists,
 
     
@@ -56,10 +56,10 @@ pub enum ContractError {
     #[error("Escrow already existsr")]
     EscrowAlreadyExists,
 
-    #[error("Did document controller not existsr")]
+    #[error("Did document controller not exist")]
     DidDocumentControllerNotExists,
 
-    #[error("Did document service already existsr")]
+    #[error("Did document service already exist")]
     DidDocumentServiceAlreadyExists,
 
     #[error("Did document service not existsr")]
