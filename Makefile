@@ -67,8 +67,11 @@ clean_prepare_chain:
 
 DOCKER_GROUP=did-contract
 
+create_docker_network:
+	docker network create escrow
+
 run_chain:
-	-docker network create did
+	-docker network create escrow
 	docker run --name chain-node-did-1 -d --user $$(id -u):$$(id -g) -v ./${E2E_TEST_RUN_PATH}/node1/:/chain4energy/.c4e-chain/ --network did --label com.docker.compose.project=${DOCKER_GROUP} -p 31657:26657 --rm c4e-chain-did:v1.4.3 
 	docker run --name chain-node-did-2 -d --user $$(id -u):$$(id -g) -v ./${E2E_TEST_RUN_PATH}/node2/:/chain4energy/.c4e-chain/ --network did --label com.docker.compose.project=${DOCKER_GROUP} --rm c4e-chain-did:v1.4.3
 	docker run --name chain-node-did-3 -d --user $$(id -u):$$(id -g) -v ./${E2E_TEST_RUN_PATH}/node3/:/chain4energy/.c4e-chain/ --network did --label com.docker.compose.project=${DOCKER_GROUP} --rm c4e-chain-did:v1.4.3
