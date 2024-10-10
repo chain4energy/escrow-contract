@@ -231,6 +231,7 @@ impl EscrowContract {
     #[sv::msg(exec)]
     pub fn load_escrow(&self, ctx: ExecCtx, escrow_id: String) -> Result<Response, ContractError> {
         // TODO ensure valid coins
+        // TODO ensure that loaded cons are equal to expected, denom and amount
         let escrows = escrows();
         let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
         escrow.ensure_state(EscrowState::Loading)?;
@@ -274,23 +275,24 @@ impl EscrowContract {
         //     Err(e) => Err(ContractError::EscrowOperatorError(e))
         // }
         
-        let msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: ctx.env.contract.address.to_string(),
-            amount: ctx.info.funds,
-        });
+        // let msg = CosmosMsg::Bank(BankMsg::Send {
+        //     to_address: ctx.env.contract.address.to_string(),
+        //     amount: ctx.info.funds,
+        // });
 
         
         // let sub_msg = SubMsg::reply_on_error(msg, LOAD_ESCROW_BANK_SEND).with_payload(payload);
 
         Ok(Response::new()
             // .add_submessage(sub_msg)
-            .add_message(msg)
+            // .add_message(msg)
             .add_attribute("action", "send_coins"))
     }
 
     #[sv::msg(exec)]  // TODO use standard api of sending fund to contract
     pub fn release_escrow(&self, ctx: ExecCtx, escrow_id: String, used_coins: Vec<Coin>) -> Result<Response, ContractError> {
         // TODO ensure valid coins
+        // TODO ensure that coins match loaded coins, denoms and amounts equel or less
         let escrows = escrows();
         let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
         escrow.ensure_state(EscrowState::Locked)?;

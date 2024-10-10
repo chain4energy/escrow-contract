@@ -1,7 +1,7 @@
 
 use std::collections::HashMap;
 
-use cosmrs::crypto::secp256k1::SigningKey;
+use cosmrs::{crypto::secp256k1::SigningKey, proto::cosmos::bank::v1beta1::QueryBalanceResponse};
 use cosmwasm_std::{Coin, Decimal};
 use serde_json::json;
 use serial_test::serial;
@@ -104,6 +104,9 @@ fn test_create_operator() {
 fn test_full_escrow_process() {
     init_suite();
 
+    const DENOM: &str = "uc4e";
+
+
     println!("RUN create_did_document");
     let context = e2e_test_suite::get_context();
     
@@ -113,11 +116,32 @@ fn test_full_escrow_process() {
     let (loader_key, loader_address) = create_key_and_address_from_mnemonic("ocean cotton ahead twist size nose stuff name donkey glad matter favorite frown syrup hard expect genuine word media another crush logic enlist practice");
     let (receiver_key, receiver_address) = create_key_and_address_from_mnemonic("average early sad ocean pole party lift panda grab admit bridge drip wrist ridge input clock hip list draft document consider power input priority");
 
-    let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contacr info").contract_address.clone();
+    let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contract info").contract_address.clone();
+
+    let admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    // assert_eq!(QueryBalanceResponse {balance: Some(e2e_test_suite::Coin { denom: DENOM.to_string(), amount: "209999954900".into() })}, admin_balance);
+    let admin_balance =  admin_balance.parse::<u128>().expect("parse error");
+
+    let operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    // assert_eq!(QueryBalanceResponse {balance: Some(e2e_test_suite::Coin { denom: DENOM.to_string(), amount: "210000000000".into() })}, operator_balance);
+    let operator_balance =  operator_balance.parse::<u128>().expect("parse error");
+
+    let loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    // assert_eq!(QueryBalanceResponse {balance: Some(e2e_test_suite::Coin { denom: DENOM.to_string(), amount: "210000000000".into() })}, loader_balance);
+    let loader_balance =  loader_balance.parse::<u128>().expect("parse error");
+
+    let receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    // assert_eq!(QueryBalanceResponse {balance: Some(e2e_test_suite::Coin { denom: DENOM.to_string(), amount: "210000000000".into() })}, receiver_balance);
+    let receiver_balance =  receiver_balance.parse::<u128>().expect("parse error");
+
+    let contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    // assert_eq!(QueryBalanceResponse {balance: Some(e2e_test_suite::Coin { denom: DENOM.to_string(), amount: "0".into() })}, contract_balance);
+    let contract_balance =  contract_balance.parse::<u128>().expect("parse error");
+
 
     // ------ create operator
     let operator_id = "operator-2";
-    let exec_msg = super::super::contract::sv::ExecMsg::CreateOperator { operator_id: operator_id.into(), controllers: vec![operator_address.into()] };
+    let exec_msg = super::super::contract::sv::ExecMsg::CreateOperator { operator_id: operator_id.into(), controllers: vec![operator_address.clone().into()] };
     
     let msg = json!(exec_msg).to_string();
     println!("Message: {msg}");
@@ -150,9 +174,7 @@ fn test_full_escrow_process() {
     let result = result.unwrap();
     let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
     println!("Escrow: {resp}");
-    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
-    
-    assert_eq!(Escrow {
+    let expected_escrow = Escrow {
         id: escrow_id.to_string(),
         operator_id: operator_id.to_string(),
         expected_coins: vec![expected_coins.clone()],
@@ -165,8 +187,30 @@ fn test_full_escrow_process() {
         used_coins: vec![],
         state: EscrowState::Loading,
         lock_timestamp: None
+    };
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    
+    assert_eq!(expected_escrow.clone(), escrow);
 
-    }, escrow);
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    assert_eq!(operator_balance, new_operator_balance);
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    assert_eq!(loader_balance, new_loader_balance);
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    assert_eq!(receiver_balance, new_receiver_balance);
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    assert_eq!(contract_balance, new_contract_balance);
 
     // ------ load escrow
 
@@ -191,27 +235,262 @@ fn test_full_escrow_process() {
     let result = result.unwrap();
     let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
     println!("Escrow: {resp}");
+
+
     let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
-    
-    assert_eq!(Escrow {
-        id: escrow_id.to_string(),
-        operator_id: operator_id.to_string(),
-        expected_coins: vec![expected_coins.clone()],
+    let expected_escrow = Escrow {
         loaded_coins: Some(LoadedCoins {
             loader: loader_address.to_string(),
             coins: vec![expected_coins.clone()]
         }),
-        operator_claimed: false,
-        receiver: receiver_address.clone().into(),
-        receiver_claimed: false,
-        receiver_share: Decimal::percent(50),
-        loader_claimed: false,
-        used_coins: vec![],
         state: EscrowState::Locked,
-        lock_timestamp: escrow.lock_timestamp
+        lock_timestamp: escrow.lock_timestamp,
+        ..expected_escrow
+        
+    };
 
-    }, escrow);
+    assert_eq!(expected_escrow.clone(), escrow);
 
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    assert_eq!(operator_balance, new_operator_balance);
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    let loader_balance = loader_balance-1000;
+    assert_eq!(loader_balance, new_loader_balance);
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    assert_eq!(receiver_balance, new_receiver_balance);
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    let contract_balance = contract_balance+1000;
+    assert_eq!(contract_balance, new_contract_balance);
+
+    // ------ release escrow
+
+    let rel_coin = Coin{
+        denom: DENOM.to_string(),
+        amount: 500u128.into()
+    };
+
+    let exec_msg = super::super::contract::sv::ExecMsg::ReleaseEscrow { escrow_id: escrow_id.into(), used_coins: vec![rel_coin.clone()] };
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&operator_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+
+
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    let expected_escrow = Escrow {
+        state: EscrowState::Released,
+        used_coins: vec![rel_coin],
+        ..expected_escrow
+        
+    };
+
+    assert_eq!(expected_escrow.clone(), escrow);
+
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+    println!("new_admin_balance: {new_admin_balance}");
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    assert_eq!(operator_balance, new_operator_balance);
+    println!("new_operator_balance: {new_operator_balance}");
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    // let loader_balance = loader_balance-1000;
+    assert_eq!(loader_balance, new_loader_balance);
+    println!("new_loader_balance: {new_loader_balance}");
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    assert_eq!(receiver_balance, new_receiver_balance);
+    println!("new_receiver_balance: {new_receiver_balance}");
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    // let contract_balance = contract_balance+1000;
+    assert_eq!(contract_balance, new_contract_balance);
+    println!("new_contract_balance: {new_contract_balance}");
+
+    // ------ withdraw loader escrow
+
+    let exec_msg = super::super::contract::sv::ExecMsg::Withdraw { escrow_id: escrow_id.into() };
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&loader_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+
+
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    let expected_escrow = Escrow {
+        loader_claimed: true,
+        ..expected_escrow
+        
+    };
+
+    assert_eq!(expected_escrow.clone(), escrow);
+
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    assert_eq!(operator_balance, new_operator_balance);
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    let loader_balance = loader_balance+500;
+    assert_eq!(loader_balance, new_loader_balance);
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    assert_eq!(receiver_balance, new_receiver_balance);
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    let contract_balance = contract_balance-500;
+    assert_eq!(contract_balance, new_contract_balance);
+
+    // ------ withdraw receiver escrow
+
+    let exec_msg = super::super::contract::sv::ExecMsg::Withdraw { escrow_id: escrow_id.into() };
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&receiver_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+
+
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    let expected_escrow = Escrow {
+        receiver_claimed: true,
+        ..expected_escrow
+        
+    };
+
+    assert_eq!(expected_escrow.clone(), escrow);
+
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    assert_eq!(operator_balance, new_operator_balance);
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    // let loader_balance = loader_balance+500;
+    assert_eq!(loader_balance, new_loader_balance);
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    let receiver_balance = receiver_balance+250;
+    assert_eq!(receiver_balance, new_receiver_balance);
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    let contract_balance = contract_balance-250;
+    assert_eq!(contract_balance, new_contract_balance);
+
+    // ------ withdraw operator escrow
+
+    let exec_msg = super::super::contract::sv::ExecMsg::Withdraw { escrow_id: escrow_id.into() };
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&operator_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+
+
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    let expected_escrow = Escrow {
+        operator_claimed: true,
+        state: EscrowState::Closed,
+        ..expected_escrow
+        
+    };
+
+    assert_eq!(expected_escrow.clone(), escrow);
+
+    let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;
+    let new_admin_balance =  new_admin_balance.parse::<u128>().expect("parse error");
+    assert_eq!(admin_balance, new_admin_balance);
+
+    let new_operator_balance = context.get_chain_client().query.bank().balance(&operator_address, DENOM).expect("operator balance error").balance.expect("no operator balance").amount;
+    let new_operator_balance =  new_operator_balance.parse::<u128>().expect("parse error");
+    let operator_balance = operator_balance+250;
+    assert_eq!(operator_balance, new_operator_balance);
+
+    let new_loader_balance = context.get_chain_client().query.bank().balance(&loader_address, DENOM).expect("loader balance error").balance.expect("no loader balance").amount;
+    let new_loader_balance =  new_loader_balance.parse::<u128>().expect("parse error");
+    // let loader_balance = loader_balance+500;
+    assert_eq!(loader_balance, new_loader_balance);
+
+    let new_receiver_balance = context.get_chain_client().query.bank().balance(&receiver_address, DENOM).expect("receiver balance error").balance.expect("no receiver balance").amount;
+    let new_receiver_balance =  new_receiver_balance.parse::<u128>().expect("parse error");
+    // let receiver_balance = receiver_balance+250;
+    assert_eq!(receiver_balance, new_receiver_balance);
+
+    let new_contract_balance = context.get_chain_client().query.bank().balance(&escrow_contract_address, DENOM).expect("contract balance error").balance.expect("no contract balance").amount;
+    let new_contract_balance =  new_contract_balance.parse::<u128>().expect("parse error");
+    let contract_balance = contract_balance-250;
+    assert_eq!(contract_balance, new_contract_balance);
 
     // ------ remove operator
     let exec_msg = super::super::contract::sv::ExecMsg::RemoveOperator { operator_id: operator_id.into() };
