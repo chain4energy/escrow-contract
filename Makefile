@@ -45,7 +45,7 @@ clean-dockerfile:
 E2E_TEST_RUN_PATH=.e2e
 E2E_TEST_CONFIG_PATH=./e2e-test/config
 
-prepare_chain:
+prepare_chain: clean_prepare_chain
 	@echo "------------- preparing: $(CHAIN) -------------"
 	mkdir -p ${E2E_TEST_RUN_PATH}
 

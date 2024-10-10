@@ -2,10 +2,12 @@
 use std::collections::HashMap;
 
 use cosmrs::crypto::secp256k1::SigningKey;
-use cw_multi_test::IntoAddr;
+use cosmwasm_std::{Coin, Decimal};
 use serde_json::json;
 use serial_test::serial;
-use e2e_test_suite::{derive_private_key_from_mnemonic, ContractInit, ADDR_PREFIX};
+use e2e_test_suite::{derive_private_key_from_mnemonic, error::CosmError, ContractInit, ADDR_PREFIX};
+
+use crate::state::{Escrow, EscrowState, LoadedCoins};
 
 // use crate::state::DidDocument;
 
@@ -23,77 +25,203 @@ const DID_CONTRACT_PATH: &str = "./../did/target/wasm32-unknown-unknown/release/
 
 #[test]
 #[serial]
-fn create_did_document() {
+fn test_add_admin() {
     init_suite();
-    // setup_context();
-    println!("RUN create_did_document");
 
-    // let context =  e2e_test_suite::CONTEXT.get().expect("Docker controller is not initialized");
+    println!("RUN create_did_document");
     let context = e2e_test_suite::get_context();
     
     let (key, address) = create_key_and_address();
 
-    // let wrong_admin = "wrong_admin".into_addr();
     let wrong_admin_key = derive_private_key_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same",    HD_PATH).expect("create key error");
 
-    // // let msg = r#"{
-    // //     "create_did_document": {
-    // //         "did_doc": {
-    // //             "id": "did:example:1234567890",
-    // //             "controller": ["did:user:1234567890"],
-    // //             "service": [
-    // //                 {
-    // //                     "id": "did:service:1234567890",
-    // //                     "type": "type",
-    // //                     "service_endpoint": "http://chargera.io"
-    // //                 }
-    // //             ]
-    // //         }
-    // //     }
-    // // }"#;
-
-    // let did = "did:example:000432";
-
-    // let did_doc = DidDocument { 
-    //     id: crate::state::Did::new(did), 
-    //     controller: vec![crate::state::Did::new("did:user:000131")], 
-    //     service: vec![crate::state::Service{
-    //         id: crate::state::Did::new("did:service:000131"),
-    //         a_type: "Chargera".to_string(),
-    //         service_endpoint: "http://chargera.io".to_string()
-    //     }],
-    //  };
-
     let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contacr info").contract_address.clone();
-    println!("XXXXXXXXXXXXX: {:?}", &escrow_contract_address);
+
+    // ---- wrong admin
 
     let add_admin_msg = super::super::contract::sv::ExecMsg::AddAdmin { new_admin: "c4e13pq6693n69hfznt33u8d6zkszpy5nq4ucj0f5s".to_string() };
     
     let msg = json!(add_admin_msg).to_string();
     println!("Message: {msg}");
 
-    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&key, &escrow_contract_address, &msg, vec![]);
-    
-    if result.is_err() {
-        assert_eq!("Generic error: Querier contract error: Did document not found", result.err().unwrap().to_string());
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&wrong_admin_key, &escrow_contract_address, &msg, vec![]);
+    let err = result.err().unwrap();
+    if let CosmError::TxBroadcastError(_, tx_result, _, _) = err {
+        assert_eq!("failed to execute message; message index: 0: Unauthorized: execute wasm contract failed" , tx_result.log);
+
     } else {
-        assert!(result.is_ok(), "Expected Ok, but got an Err");
-        
+        panic!("not TxBroadcastError");
     }
-    // let query_msg = super::super::contract::sv::QueryMsg::GetDidDocument { did: did.to_string() };
-    // let query = json!(query_msg).to_string();
-    // println!("Query: {query}");
-    // let result = context.chain.query.contract(&context.contract_address, &query);
-    // assert!(result.is_ok(), "Expected Ok, but got an Err");
-    // let result = result.unwrap();
+    // assert_eq!("Tx Bradcast Error", result.err().unwrap().to_string());
+    // --- success
+    let add_admin_msg = super::super::contract::sv::ExecMsg::AddAdmin { new_admin: "c4e13pq6693n69hfznt33u8d6zkszpy5nq4ucj0f5s".to_string() };
+    
+    let msg = json!(add_admin_msg).to_string();
+    println!("Message: {msg}");
 
-    // let resp = String::from_utf8(result.data).expect("parse result error");
-    // println!("Resposne: {resp}");
-    // let resp_did_doc: DidDocument= serde_json::from_str(&resp).expect("desrializing did doc error");
-    // assert_eq!(did_doc.clone(), resp_did_doc);
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+        
+}
 
 
-    // }
+#[test]
+#[serial]
+fn test_create_operator() {
+    init_suite();
+
+    println!("RUN create_did_document");
+    let context = e2e_test_suite::get_context();
+    
+    let (key, address) = create_key_and_address();
+
+    let (operator_key, operator_address) = create_key_and_address_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same");
+
+    let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contacr info").contract_address.clone();
+
+    let operator_id = "operator-1";
+    let exec_msg = super::super::contract::sv::ExecMsg::CreateOperator { operator_id: operator_id.into(), controllers: vec![operator_address.into()] };
+    
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    let exec_msg = super::super::contract::sv::ExecMsg::RemoveOperator { operator_id: operator_id.into() };
+    
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+        
+}
+
+
+#[test]
+#[serial]
+fn test_full_escrow_process() {
+    init_suite();
+
+    println!("RUN create_did_document");
+    let context = e2e_test_suite::get_context();
+    
+    let (contract_admin_key, contract_admin_address) = create_key_and_address();
+
+    let (operator_key, operator_address) = create_key_and_address_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same");
+    let (loader_key, loader_address) = create_key_and_address_from_mnemonic("ocean cotton ahead twist size nose stuff name donkey glad matter favorite frown syrup hard expect genuine word media another crush logic enlist practice");
+    let (receiver_key, receiver_address) = create_key_and_address_from_mnemonic("average early sad ocean pole party lift panda grab admit bridge drip wrist ridge input clock hip list draft document consider power input priority");
+
+    let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contacr info").contract_address.clone();
+
+    // ------ create operator
+    let operator_id = "operator-2";
+    let exec_msg = super::super::contract::sv::ExecMsg::CreateOperator { operator_id: operator_id.into(), controllers: vec![operator_address.into()] };
+    
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&contract_admin_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // ------ create escrow
+    let escrow_id = "escrow-1";
+
+    let expected_coins = Coin{
+        denom: "uc4e".to_string(),
+        amount: 1000u128.into()
+    };
+    let receiver_share = Decimal::percent(50);
+
+    let exec_msg = super::super::contract::sv::ExecMsg::CreateEscrow { escrow_id: escrow_id.into(), operator_id: operator_id.into(), receiver: receiver_address.clone().into(), expected_coins: vec![expected_coins.clone()], receiver_share: receiver_share.clone() };
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&operator_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    
+    assert_eq!(Escrow {
+        id: escrow_id.to_string(),
+        operator_id: operator_id.to_string(),
+        expected_coins: vec![expected_coins.clone()],
+        loaded_coins: None,
+        operator_claimed: false,
+        receiver: receiver_address.clone().into(),
+        receiver_claimed: false,
+        receiver_share: receiver_share,
+        loader_claimed: false,
+        used_coins: vec![],
+        state: EscrowState::Loading,
+        lock_timestamp: None
+
+    }, escrow);
+
+    // ------ load escrow
+
+    let exec_msg = super::super::contract::sv::ExecMsg::LoadEscrow { escrow_id: escrow_id.into() } ;
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let loader_coin = e2e_test_suite::Coin {
+        denom: expected_coins.denom.clone(),
+        amount: expected_coins.amount.to_string()
+    };
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&loader_key, &escrow_contract_address, &msg, vec![loader_coin.clone()]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+
+    // let query_msg = super::super::contract::sv::QueryMsg::GetEscrow { escrow_id: escrow_id.into() };
+    let msg = json!(query_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().query.wasm().contract(&escrow_contract_address, &msg);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+    let result = result.unwrap();
+    let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
+    println!("Escrow: {resp}");
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
+    
+    assert_eq!(Escrow {
+        id: escrow_id.to_string(),
+        operator_id: operator_id.to_string(),
+        expected_coins: vec![expected_coins.clone()],
+        loaded_coins: Some(LoadedCoins {
+            loader: loader_address.to_string(),
+            coins: vec![expected_coins.clone()]
+        }),
+        operator_claimed: false,
+        receiver: receiver_address.clone().into(),
+        receiver_claimed: false,
+        receiver_share: Decimal::percent(50),
+        loader_claimed: false,
+        used_coins: vec![],
+        state: EscrowState::Locked,
+        lock_timestamp: escrow.lock_timestamp
+
+    }, escrow);
+
+
+    // ------ remove operator
+    let exec_msg = super::super::contract::sv::ExecMsg::RemoveOperator { operator_id: operator_id.into() };
+    
+    let msg = json!(exec_msg).to_string();
+    println!("Message: {msg}");
+
+    let result = context.get_chain_client().tx.wasm().execute_contract_msg(&contract_admin_key, &escrow_contract_address, &msg, vec![]);
+    assert!(result.is_ok(), "Expected Ok, but got an Err");
+        
 }
 
 #[test]
@@ -128,7 +256,6 @@ fn init_suite() {
         let context = e2e_test_suite::get_context();
         did_contract_address = context.get_contracts_info().get(DID_CONTRACT_NAME).expect("no did contract info").contract_address.clone();
     }
-    println!(r#"GGGGGGGGGGGGG: {{"admins": ["{}"], "did_contract": "{}"}}"#, &owner_addr, did_contract_address);
 
     e2e_test_suite::add_contract(CONTRACT_CREATOR_MNEMONIC, HD_PATH, ESCROW_CONTRACT_NAME, 
         ContractInit {
@@ -138,13 +265,16 @@ fn init_suite() {
         }
     );
     let context: std::sync::RwLockReadGuard<'_, e2e_test_suite::TestSuiteContextInternal> = e2e_test_suite::get_context();
-    println!("WWWWWWWWWWWWWWWWWW: {:?}", context.get_contracts_info());
 
     
 }
 
 fn create_key_and_address() -> (SigningKey, String){
-    let key = derive_private_key_from_mnemonic(CONTRACT_CREATOR_MNEMONIC,    HD_PATH).expect("create key error");
+    create_key_and_address_from_mnemonic(CONTRACT_CREATOR_MNEMONIC)
+}
+
+fn create_key_and_address_from_mnemonic(mnemonic: &str) -> (SigningKey, String){
+    let key = derive_private_key_from_mnemonic(mnemonic,    HD_PATH).expect("create key error");
     let address = key.public_key().account_id(ADDR_PREFIX).expect("cannot create address").to_string();
     (key, address)
 }

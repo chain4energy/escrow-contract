@@ -24,6 +24,7 @@ pub struct EscrowContract {
     // pub(crate) escrows: escrows()
 }
 
+// TODO add ensuring operator is enabled for all operator operation - escrow 
 #[entry_points]
 #[contract]
 #[sv::error(ContractError)]
@@ -38,6 +39,8 @@ impl EscrowContract {
 
     #[sv::msg(instantiate)]
     pub fn instantiate(&self, ctx: InstantiateCtx, admins: Vec<Addr> , did_contract: Addr) ->  Result<Response, ContractError> {
+        // TODO ensure admins not empty
+        // TODO ensure did contract exists
         self.save_admins(ctx.deps.storage, &admins)?;
         self.save_did_contract_address(ctx.deps.storage, &did_contract)?;
         Ok(Response::default())
