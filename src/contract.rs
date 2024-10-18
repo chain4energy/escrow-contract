@@ -23,6 +23,11 @@ pub struct EscrowContract {
     pub operators: Map<String, EscrowOperator>,
     // pub(crate) escrows: escrows()
 }
+// ---------------------------------------------------------------------------------------------------------------------------
+// |                                                                                                                         |
+// | TODO !!!!!!!!!!!!!!!!!!!!!!!  remove receiver_share from escrow, make final shares provided by operator on release step |
+// |                                                                                                                         |
+// ---------------------------------------------------------------------------------------------------------------------------
 
 // TODO add ensuring operator is enabled for all operator operation - escrow 
 #[entry_points]
