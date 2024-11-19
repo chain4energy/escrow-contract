@@ -78,7 +78,8 @@ pub struct Escrow {
     pub used_coins: Vec<Coin>,
     pub state: EscrowState,
     pub receiver: Controller,
-    pub receiver_share: Decimal,
+    pub operator_fee: Vec<Coin>,
+    // pub receiver_share: Decimal,
     pub receiver_claimed: bool,
     pub operator_claimed: bool,
     pub loader_claimed: bool,
@@ -110,6 +111,7 @@ pub enum EscrowState {
     Locked,
     Released,
     Closed,
+    // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
 }
 
 impl EscrowState {
@@ -197,15 +199,15 @@ pub trait Share {
 
 }
 
-impl Share for Decimal {
-    fn ensure_in_range(&self) -> Result<(), ContractError> {
-        if *self >= Decimal::zero() && *self <= Decimal::one() {
-            Ok(())
-        } else {
-            Err(ContractError::ShareValue)
-        }
-    }
-}
+// impl Share for Decimal {
+//     fn ensure_in_range(&self) -> Result<(), ContractError> {
+//         if *self >= Decimal::zero() && *self <= Decimal::one() {
+//             Ok(())
+//         } else {
+//             Err(ContractError::ShareValue)
+//         }
+//     }
+// }
 
 pub trait CoinsExt {
     fn deduplicated_coins(coins: Vec<Coin>) -> Result<Coins, StdError>;
@@ -312,7 +314,8 @@ mod tests {
             operator_claimed: true,
             receiver: "recevier".to_string().into(),
             receiver_claimed: true,
-            receiver_share: Decimal::from_str("334.05").expect("decimal error"),
+            operator_fee: vec![Coin::new(123556u64, "uc4e")],
+            // receiver_share: Decimal::from_str("334.05").expect("decimal error"),
             used_coins: vec![Coin::new(103u64, "utom")],
             state: EscrowState::Loading,
             loader_claimed: true,
@@ -330,7 +333,7 @@ mod tests {
             "operator_claimed": true,
             "receiver": "recevier",
             "receiver_claimed": true,
-            "receiver_share": "334.05",
+            "operator_fee": [{"denom":"uc4e","amount":"123556"}],
             "used_coins": [{"denom":"utom","amount":"103"}],
             "state": "loading",
             "loader_claimed": true,

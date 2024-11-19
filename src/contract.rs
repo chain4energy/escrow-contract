@@ -193,7 +193,7 @@ impl EscrowContract {
     // -- Escrow
 
     #[sv::msg(exec)]
-    pub fn create_escrow(&self, ctx: ExecCtx, escrow_id: String, operator_id: String, receiver: Controller, expected_coins: Vec<Coin>, receiver_share: Decimal) -> Result<Response, ContractError> {
+    pub fn create_escrow(&self, ctx: ExecCtx, escrow_id: String, operator_id: String, receiver: Controller, expected_coins: Vec<Coin>) -> Result<Response, ContractError> {
         // TODO is oparator enabled
         
         receiver.ensure_valid(ctx.deps.api)?;
@@ -204,7 +204,7 @@ impl EscrowContract {
         let escrows = escrows();
         escrows.ensure_not_exist(ctx.deps.storage, escrow_id.as_str())?;
 
-        receiver_share.ensure_in_range()?;
+        // receiver_share.ensure_in_range()?;
         let expected_coins = Coins::deduplicated_coins(expected_coins)?;
         // TODO some expected coins validation: > 0, at least 1 denom
 
@@ -216,9 +216,10 @@ impl EscrowContract {
             operator_claimed: false,
             receiver: receiver,
             receiver_claimed: false,
-            receiver_share: receiver_share,
+            // receiver_share: receiver_share,
             loader_claimed: false,
             used_coins: vec![],
+            operator_fee: vec![],
             state: EscrowState::Loading,
             lock_timestamp: None
 
@@ -295,7 +296,7 @@ impl EscrowContract {
     }
 
     #[sv::msg(exec)]  // TODO use standard api of sending fund to contract
-    pub fn release_escrow(&self, ctx: ExecCtx, escrow_id: String, used_coins: Vec<Coin>) -> Result<Response, ContractError> {
+    pub fn release_escrow(&self, ctx: ExecCtx, escrow_id: String, used_coins: Vec<Coin>, operator_fee: Vec<Coin>) -> Result<Response, ContractError> {
         // TODO ensure valid coins
         // TODO ensure that coins match loaded coins, denoms and amounts equel or less
         let escrows = escrows();
@@ -305,8 +306,11 @@ impl EscrowContract {
 
         let used_coins = Coins::deduplicated_coins(used_coins)?;
 
+        let operator_fee = Coins::deduplicated_coins(operator_fee)?;
+
         escrow.used_coins = used_coins.to_vec(); 
         escrow.state = EscrowState::Released; 
+        escrow.operator_fee = operator_fee.to_vec();
         let expected = Coins::try_from(escrow.expected_coins.clone())?;
         if used_coins == expected {
             escrow.loader_claimed = true
@@ -352,34 +356,39 @@ impl EscrowContract {
             let did_contract = self.did_contract.load(ctx.deps.storage)?;
             let sender: Controller = ctx.info.sender.to_string().into();
            
-            let receiver_share = escrow.receiver_share;
+            // let receiver_share = escrow.receiver_share;
            
-            let mut receiver_coins: Vec<Coin> = Vec::new();
-            for c in &escrow.used_coins {
-                let used =  Decimal::try_from(c.amount);
-                if let Err(e) = used {
-                    return Err(ContractError::SomeError); // TODO specific error
-                }
-                let receiver_amount = receiver_share.checked_mul(used.unwrap()); // Calculate share for each coin
-                if let Err(e) = receiver_amount {
-                    return Err(ContractError::SomeError); // TODO specific error
-                }
-                let receiver_amount = receiver_amount.unwrap();
-                println!("receiver amount: {receiver_amount}");
-                receiver_coins.push(Coin {
-                    denom: c.denom.clone(),
-                    amount: receiver_amount.to_uint_ceil(), // This will be the receiver's portion of this coin
-                });
-            }
+            // let mut receiver_coins: Vec<Coin> = Vec::new();
+            // for c in &escrow.used_coins {
+            //     let used =  Decimal::try_from(c.amount);
+            //     if let Err(e) = used {
+            //         return Err(ContractError::SomeError); // TODO specific error
+            //     }
+            //     let receiver_amount = escrow.used_coins   receiver_share.checked_mul(used.unwrap()); // Calculate share for each coin
+            //     if let Err(e) = receiver_amount {
+            //         return Err(ContractError::SomeError); // TODO specific error
+            //     }
+            //     let receiver_amount = receiver_amount.unwrap();
+            //     println!("receiver amount: {receiver_amount}");
+            //     receiver_coins.push(Coin {
+            //         denom: c.denom.clone(),
+            //         amount: receiver_amount.to_uint_ceil(), // This will be the receiver's portion of this coin
+            //     });
+            // }
 
             if !escrow.receiver_claimed {
                 if Remote::<DidContract>::new(did_contract.clone()).querier(&ctx.deps.querier).is_controller_of(vec![escrow.receiver.clone()], sender.clone())? {
                     println!("Withdrawing - is receiver");
+                    let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
+                    for c in escrow.operator_fee.clone() {
+                        uc.sub(c)?;
+                    }
+
                     let msg = CosmosMsg::Bank(BankMsg::Send {
                         to_address: ctx.info.sender.to_string(),
-                        amount: receiver_coins.clone(),
+                        amount: uc.to_vec(),
                     });
-                    println!("Withdrawing - receiver {}", receiver_coins[0].amount);
+                    println!("Withdrawing - receiver {}", uc.into_vec()[0].amount);
                     resp = resp.add_message(msg);
                     escrow.receiver_claimed = true;
                 }
@@ -388,10 +397,10 @@ impl EscrowContract {
             if !escrow.operator_claimed {
 
                 let operator = self.operators.load(ctx.deps.storage, escrow.operator_id.clone())?;
-                let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
-                for c in receiver_coins {
-                    uc.sub(c)?;
-                }
+                let uc: Coins = Coins::try_from(escrow.operator_fee.clone())?;
+                // for c in receiver_coins {
+                //     uc.sub(c)?;
+                // }
 
                 if Remote::<DidContract>::new(did_contract.clone()).querier(&ctx.deps.querier).is_controller_of(operator.controller, sender)? {
                     println!("Withdrawing - is operator");
@@ -1139,7 +1148,7 @@ mod tests {
                 "operator1".to_string(),
                 receiver.clone(),
                 expected_coins.clone(),
-                receiver_share,
+                // receiver_share,
             )
             .call(&op_controller_addr)
             .expect("error creating escrow");
@@ -1166,7 +1175,8 @@ mod tests {
             operator_claimed: false,
             receiver: receiver,
             receiver_claimed: false,
-            receiver_share: receiver_share,
+            operator_fee: vec![], 
+            // receiver_share: receiver_share,
             loader_claimed: false,
             used_coins: vec![],
             state: EscrowState::Loading,
@@ -1221,7 +1231,7 @@ mod tests {
                 "operator1".to_string(),
                 controller.clone(),
                 expected_coins.clone(),
-                Decimal::percent(50),
+                // Decimal::percent(50),
             )
             .call(&op_controller_addr)
             .expect("error creating escrow");
@@ -1246,7 +1256,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: controller.clone(),
                 receiver_claimed: false,
-                receiver_share: Decimal::percent(50),
+                operator_fee: vec![], 
+                // receiver_share: Decimal::percent(50),
                 loader_claimed: false,
                 used_coins: vec![],
                 state: EscrowState::Locked,
@@ -1304,7 +1315,7 @@ mod tests {
                 "operator1".to_string(),
                 receiver.clone(),
                 expected_coins.clone(),
-                Decimal::percent(50),
+                // Decimal::percent(50),
             )
             .call(&op_controller_addr)
             .expect("error creating escrow");
@@ -1324,8 +1335,13 @@ mod tests {
             amount: 500u128.into()
         };
 
+        let operator_fee = Coin{
+            denom: "uatom".to_string(),
+            amount: 250u128.into()
+        };
+
         let res = escrow_contract
-            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()])
+            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()], vec![operator_fee.clone()])
             .call(&op_controller_addr).expect("load_escrow error");
 
         let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
@@ -1340,7 +1356,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver.clone(),
                 receiver_claimed: false,
-                receiver_share: Decimal::percent(50),
+                operator_fee: vec![operator_fee],
+                // receiver_share: Decimal::percent(50),
                 loader_claimed: false,
                 used_coins: vec![rel_coin.clone()],
                 state: EscrowState::Released,
@@ -1416,7 +1433,7 @@ mod tests {
                 "operator1".to_string(),
                 receiver.clone(),
                 expected_coins.clone(),
-                Decimal::percent(50),
+                // Decimal::percent(50),
             )
             .call(&op_controller_addr)
             .expect("error creating escrow");
@@ -1436,8 +1453,13 @@ mod tests {
             amount: 500u128.into()
         };
 
+        let operator_fee = Coin{
+            denom: "uatom".to_string(),
+            amount: 250u128.into()
+        };
+
         let res = escrow_contract
-            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()])
+            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()], vec![operator_fee.clone()])
             .call(&op_controller_addr).expect("load_escrow error");
 
         let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
@@ -1502,7 +1524,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver.clone(),
                 receiver_claimed: false,
-                receiver_share: Decimal::percent(50),
+                operator_fee: vec![operator_fee.clone()],
+                // receiver_share: Decimal::percent(50),
                 loader_claimed: true,
                 used_coins: vec![rel_coin.clone()],
                 state: EscrowState::Released,
@@ -1552,7 +1575,8 @@ mod tests {
                 operator_claimed: true,
                 receiver: receiver.clone(),
                 receiver_claimed: false,
-                receiver_share: Decimal::percent(50),
+                operator_fee: vec![operator_fee.clone()],
+                // receiver_share: Decimal::percent(50),
                 loader_claimed: true,
                 used_coins: vec![rel_coin.clone()],
                 state: EscrowState::Released,
@@ -1602,7 +1626,8 @@ mod tests {
                 operator_claimed: true,
                 receiver: receiver.clone(),
                 receiver_claimed: true,
-                receiver_share: Decimal::percent(50),
+                operator_fee: vec![operator_fee],
+                // receiver_share: Decimal::percent(50),
                 loader_claimed: true,
                 used_coins: vec![rel_coin.clone()],
                 state: EscrowState::Closed,
@@ -1684,8 +1709,8 @@ mod tests {
         let escrow = "escrow-1";
         let receiver = "receiver-1".into_addr().to_string();
         let expected_coins = vec![Coin::new(123u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow.to_string(), operator.to_string(), receiver.into(), expected_coins, share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow.to_string(), operator.to_string(), receiver.into(), expected_coins).call(&owner);
         assert!(result.is_err(), "Expected Err, but got an Ok");
         assert_eq!("type: escrow_contract::state::EscrowOperator; key: [00, 09, 6F, 70, 65, 72, 61, 74, 6F, 72, 73, 6F, 70, 65, 72, 61, 74, 6F, 72, 2D, 31] not found", result.err().unwrap().to_string());
 
@@ -1722,42 +1747,42 @@ mod tests {
         let escrow1 = "escrow-1";
         let receiver1 = "receiver-1".into_addr();
         let expected_coins1 = vec![Coin::new(123u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow1.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins1.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow1.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins1.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow2 = "escrow-2";
         let expected_coins2 = vec![Coin::new(13u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow2.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins2.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow2.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins2.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 2 escrows
 
         let escrow3 = "escrow-3";
         let expected_coins3 = vec![Coin::new(1293u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow3.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins3.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow3.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins3.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow4 = "escrow-4";
         let expected_coins4 = vec![Coin::new(77u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow4.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins4.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow4.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins4.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 3 escrows
 
         let escrow5 = "escrow-5";
         let expected_coins5 = vec![Coin::new(1293u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow5.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins5.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow5.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins5.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow6 = "escrow-6";
         let expected_coins6 = vec![Coin::new(77u64, "uc4e")];
-        let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow6.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins6.clone(), share).call(&owner);
+        // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+        let result = escrow_contract.create_escrow(escrow6.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins6.clone()).call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 1 escrows check
@@ -1781,7 +1806,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,
@@ -1804,7 +1830,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,
@@ -1834,7 +1861,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,
@@ -1857,7 +1885,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,
@@ -1887,7 +1916,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,
@@ -1910,7 +1940,8 @@ mod tests {
                 operator_claimed: false,
                 receiver: receiver1.to_string().into(),
                 receiver_claimed: false,
-                receiver_share: share,
+                operator_fee: vec![],
+                // receiver_share: share,
                 used_coins: vec![],
                 state: EscrowState::Loading,
                 loader_claimed: false,

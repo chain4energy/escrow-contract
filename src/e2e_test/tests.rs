@@ -156,9 +156,9 @@ fn test_full_escrow_process() {
         denom: "uc4e".to_string(),
         amount: 1000u128.into()
     };
-    let receiver_share = Decimal::percent(50);
+    // let receiver_share = Decimal::percent(50);
 
-    let exec_msg = super::super::contract::sv::ExecMsg::CreateEscrow { escrow_id: escrow_id.into(), operator_id: operator_id.into(), receiver: receiver_address.clone().into(), expected_coins: vec![expected_coins.clone()], receiver_share: receiver_share.clone() };
+    let exec_msg = super::super::contract::sv::ExecMsg::CreateEscrow { escrow_id: escrow_id.into(), operator_id: operator_id.into(), receiver: receiver_address.clone().into(), expected_coins: vec![expected_coins.clone()] };
     let msg = json!(exec_msg).to_string();
     println!("Message: {msg}");
 
@@ -182,7 +182,8 @@ fn test_full_escrow_process() {
         operator_claimed: false,
         receiver: receiver_address.clone().into(),
         receiver_claimed: false,
-        receiver_share: receiver_share,
+        operator_fee: vec![],
+        // receiver_share: receiver_share,
         loader_claimed: false,
         used_coins: vec![],
         state: EscrowState::Loading,
@@ -280,7 +281,12 @@ fn test_full_escrow_process() {
         amount: 500u128.into()
     };
 
-    let exec_msg = super::super::contract::sv::ExecMsg::ReleaseEscrow { escrow_id: escrow_id.into(), used_coins: vec![rel_coin.clone()] };
+    let operator_fee = Coin{
+        denom: DENOM.to_string(),
+        amount: 250u128.into()
+    };
+
+    let exec_msg = super::super::contract::sv::ExecMsg::ReleaseEscrow { escrow_id: escrow_id.into(), used_coins: vec![rel_coin.clone()], operator_fee: vec![operator_fee] };
     let msg = json!(exec_msg).to_string();
     println!("Message: {msg}");
 
