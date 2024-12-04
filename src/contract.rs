@@ -210,11 +210,11 @@ impl EscrowContract {
 
         let escrow = Escrow {
             id: escrow_id,
-            operator_id: operator_id,
-            expected_coins: expected_coins.into_vec(),
+            operator_id: operator_id.clone(),
+            expected_coins: expected_coins.to_vec(),
             loaded_coins: None,
             operator_claimed: false,
-            receiver: receiver,
+            receiver: receiver.clone(),
             receiver_claimed: false,
             // receiver_share: receiver_share,
             loader_claimed: false,
@@ -228,7 +228,15 @@ impl EscrowContract {
        
         let r = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow);
         match r {
-            Ok(_) => Ok(Response::default()),
+            Ok(_) => {
+                let resp = Response::new();
+                let event = Event::new("escrow_create")
+                    .add_attribute("escrow_id", escrow.id.as_str())
+                    .add_attribute("operator_id", operator_id)
+                    .add_attribute("receiver", receiver.to_string())
+                    .add_attribute("expected_coins", expected_coins.to_string());
+                Ok(resp.add_event(event))
+            },
             Err(e) => Err(ContractError::EscrowOperatorError(e))
         }
     }
@@ -289,10 +297,16 @@ impl EscrowContract {
         
         // let sub_msg = SubMsg::reply_on_error(msg, LOAD_ESCROW_BANK_SEND).with_payload(payload);
 
-        Ok(Response::new()
-            // .add_submessage(sub_msg)
-            // .add_message(msg)
-            .add_attribute("action", "send_coins"))
+        let resp = Response::new();
+        let event = Event::new("escrow_load")
+            .add_attribute("operator_id", escrow.operator_id)
+            .add_attribute("loader", ctx.info.sender)
+            .add_attribute("escrow_id", escrow.id);
+        Ok(resp.add_event(event))
+        // Ok(Response::new()
+        //     // .add_submessage(sub_msg)
+        //     // .add_message(msg)
+        //     .add_attribute("action", "send_coins"))
     }
 
     #[sv::msg(exec)]  // TODO use standard api of sending fund to contract
@@ -320,7 +334,14 @@ impl EscrowContract {
             return Err(ContractError::EscrowOperatorError(e))
         }
 
-        Ok(Response::new())
+        let resp = Response::new();
+        let event = Event::new("escrow_release")
+            .add_attribute("escrow_id", escrow.id.as_str())
+            .add_attribute("used_coins", used_coins.to_string())
+            .add_attribute("operator_fee", operator_fee.to_string());
+        Ok(resp.add_event(event))
+
+        // Ok(Response::new())
     }
 
     #[sv::msg(exec)]
@@ -346,6 +367,9 @@ impl EscrowContract {
                         amount: ec.into_vec(),
                     });
                     resp = resp.add_message(msg);
+                    let event = Event::new("escrow_withdraw_loader")
+                        .add_attribute("escrow_id", escrow.id.as_str());
+                    resp = resp.add_event(event);
                     escrow.loader_claimed = true;
                 }
             }
@@ -390,6 +414,9 @@ impl EscrowContract {
                     });
                     println!("Withdrawing - receiver {}", uc.into_vec()[0].amount);
                     resp = resp.add_message(msg);
+                    let event = Event::new("escrow_withdraw_receiver")
+                        .add_attribute("escrow_id", escrow.id.as_str());
+                    resp = resp.add_event(event);
                     escrow.receiver_claimed = true;
                 }
             }
@@ -411,6 +438,9 @@ impl EscrowContract {
                     println!("Withdrawing - operator {}", uc.into_vec()[0].amount);
 
                     resp = resp.add_message(msg);
+                    let event = Event::new("escrow_withdraw_operator")
+                        .add_attribute("escrow_id", escrow.id.as_str());
+                    resp = resp.add_event(event);
                     escrow.operator_claimed = true;
                 }
             }
