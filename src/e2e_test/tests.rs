@@ -174,6 +174,7 @@ fn test_full_escrow_process() {
     let result = result.unwrap();
     let resp = String::from_utf8(result.clone().data).expect("Invalid UTF-8 sequence");
     println!("Escrow: {resp}");
+    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
     let expected_escrow = Escrow {
         id: escrow_id.to_string(),
         operator_id: operator_id.to_string(),
@@ -187,10 +188,10 @@ fn test_full_escrow_process() {
         loader_claimed: false,
         used_coins: vec![],
         state: EscrowState::Loading,
-        lock_timestamp: None
+        lock_timestamp: None,
+        create_timestamp: escrow.create_timestamp,
     };
-    let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
-    
+
     assert_eq!(expected_escrow.clone(), escrow);
 
     let new_admin_balance = context.get_chain_client().query.bank().balance(&contract_admin_address, DENOM).expect("admin balance error").balance.expect("no admin balance").amount;

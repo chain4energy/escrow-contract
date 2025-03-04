@@ -1,3 +1,4 @@
+use std::time::Duration;
 use constcat::concat as constcat;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Coin, Coins, Decimal, Deps, StdError, Storage, Timestamp};
@@ -84,6 +85,7 @@ pub struct Escrow {
     pub operator_claimed: bool,
     pub loader_claimed: bool,
     pub lock_timestamp: Option<Timestamp>,
+    pub create_timestamp: Timestamp,
 }
 
 impl Escrow {
@@ -109,6 +111,7 @@ pub struct LoadedCoins {
 pub enum EscrowState {
     Loading,
     Locked,
+    Unloaded,
     Released,
     Closed,
     // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
@@ -122,6 +125,7 @@ impl EscrowState {
             EscrowState::Locked => "locked".to_string(),
             EscrowState::Released => "released".to_string(),
             EscrowState::Closed => "closed".to_string(),
+            EscrowState::Unloaded => "unloaded".to_string(),
         }
     }
 }
@@ -319,7 +323,8 @@ mod tests {
             used_coins: vec![Coin::new(103u64, "utom")],
             state: EscrowState::Loading,
             loader_claimed: true,
-            lock_timestamp: Some(Timestamp::from_nanos(1232141423))
+            lock_timestamp: Some(Timestamp::from_nanos(1232141423)),
+            create_timestamp: Timestamp::from_nanos(1232141400),
         };
         let serialized = serde_json::to_string(&obj).unwrap();
         let expected_json = json!({
@@ -337,7 +342,8 @@ mod tests {
             "used_coins": [{"denom":"utom","amount":"103"}],
             "state": "loading",
             "loader_claimed": true,
-            "lock_timestamp": "1232141423"
+            "lock_timestamp": "1232141423",
+            "create_timestamp": "1232141400",
         });
         let serialized_value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(serialized_value, expected_json);
