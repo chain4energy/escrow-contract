@@ -636,13 +636,14 @@ impl EscrowContract {
 mod tests {
     use std::str::FromStr;
 
-    use cosmwasm_std::{Coin, Decimal};
+    use cosmwasm_std::{Coin, Decimal, StdError};
     use cw_multi_test::IntoAddr;
     use sylvia::multitest::App;
 
     use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, sv::mt::DidContractProxy, DidContract};
     use did_contract::state::{Controller, Did, DidDocument, Service};
 
+    use crate::error::ContractError;
     use crate::state::LoadedCoins;
     use crate::{contract::sv::mt::{CodeId, EscrowContractProxy}, state::{Escrow, EscrowOperator, EscrowState}};
 
@@ -1288,7 +1289,7 @@ mod tests {
         let res = escrow_contract
             .load_escrow("escrow1".to_string())
             .with_funds(vec![coin.clone()].as_slice()) // Insufficient funds
-            .call(&loader).expect("load_escrow error");
+            .call(&loader);
 
             let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
             assert_eq!(Escrow {
@@ -1315,6 +1316,91 @@ mod tests {
            let contract_coin = app.querier().query_balance(escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
            assert_eq!(coin, contract_coin);
     }
+
+
+    #[test]
+    fn test_load_escrow_expired() {
+        let app: App<cw_multi_test::App> = App::default();
+
+        let loader = "loader".into_addr();
+        let loader_coin = Coin{
+            denom: "uatom".to_string(),
+            amount: 10000u128.into()
+        };
+        {
+            let mut app_mut = app.app_mut();
+            let a = app_mut.sudo(
+                cw_multi_test::SudoMsg::Bank(
+                    cw_multi_test::BankSudo::Mint { to_address: loader.to_string(), amount: vec![loader_coin] }
+                )
+            ).expect("error sudo");
+        }
+        let escrow_code_id = CodeId::store_code(&app);
+        let did_code_id = DidContractCodeId::store_code(&app);
+
+        let owner = "owner".into_addr();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 10).call(&owner).unwrap();
+
+        let op_controller_addr = "operatr_controller".into_addr();
+
+        let op_controller: Controller = op_controller_addr.to_string().into();
+
+        let res = escrow_contract
+            .create_operator("operator1".to_string(), vec![op_controller.clone()])
+            .call(&owner)
+            .expect("error creating operator");
+
+        let controller: Controller = "controller1".into_addr().to_string().into();
+        let coin = Coin{
+            denom: "uatom".to_string(),
+            amount: 1000u128.into()
+        };
+
+        let expected_coins = vec![coin.clone()];
+        escrow_contract
+            .create_escrow(
+                "escrow1".to_string(),
+                "operator1".to_string(),
+                controller.clone(),
+                expected_coins.clone(),
+            )
+            .call(&op_controller_addr)
+            .expect("error creating escrow");
+
+
+
+        let res = escrow_contract
+            .load_escrow("escrow1".to_string())
+            .with_funds(vec![coin.clone()].as_slice())
+            .call(&loader);
+
+
+        assert!(res.is_err(), "Expected Ok, but got Err");
+
+        let exp_err: ContractError = ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout"));
+        assert_eq!(exp_err, res.unwrap_err());
+
+            let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
+            assert_eq!(Escrow {
+                id: "escrow1".to_string(),
+                operator_id: "operator1".to_string(),
+                expected_coins: expected_coins.clone(),
+                loaded_coins: None,
+                operator_claimed: false,
+                receiver: controller.clone(),
+                receiver_claimed: false,
+                operator_fee: vec![],
+                loader_claimed: false,
+                used_coins: vec![],
+                state: EscrowState::Unloaded,
+                lock_timestamp: escrow.lock_timestamp,
+                create_timestamp: escrow.create_timestamp
+
+            }, escrow);
+
+    }
+
 
     #[test]
     fn test_release() {
