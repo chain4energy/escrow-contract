@@ -253,7 +253,7 @@ impl EscrowContract {
         escrow.ensure_state(EscrowState::Loading)?;
         let timeout = self.load_timeout.load(ctx.deps.storage)?;
         let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
-        if ctx.env.block.time.gt(&exp_timestamp) {
+        if ctx.env.block.time.ge(&exp_timestamp) {
             return Err(ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout")));
         }
 
