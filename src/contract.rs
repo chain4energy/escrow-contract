@@ -90,6 +90,8 @@ impl EscrowContract {
             admins.remove(pos);
             self.admins.save(ctx.deps.storage, &admins)?;
 
+            // TODO add event
+
             Ok(Response::new()
                 .add_attribute("action", "remove_admin")
                 .add_attribute("removed_admin", admin.to_string()))
@@ -98,6 +100,8 @@ impl EscrowContract {
         }
     }
 
+// TODO add events to execs
+   
     // ---- Escrow Operators ------
 
     #[sv::msg(exec)]
