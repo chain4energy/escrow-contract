@@ -111,7 +111,7 @@ pub struct LoadedCoins {
 pub enum EscrowState {
     Loading,
     Locked,
-    Unloaded,
+    NotLoaded,
     Released,
     Closed,
     // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
@@ -125,7 +125,7 @@ impl EscrowState {
             EscrowState::Locked => "locked".to_string(),
             EscrowState::Released => "released".to_string(),
             EscrowState::Closed => "closed".to_string(),
-            EscrowState::Unloaded => "unloaded".to_string(),
+            EscrowState::NotLoaded => "not_loaded".to_string(),
         }
     }
 }

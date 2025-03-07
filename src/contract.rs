@@ -516,7 +516,7 @@ impl EscrowContract {
                     let timeout = self.load_timeout.load(ctx.deps.storage)?;
                     let exp_timestamp = did_document.create_timestamp.plus_seconds(timeout.as_secs());
                     if ctx.env.block.time.ge(&exp_timestamp) {
-                        did_document.state = EscrowState::Unloaded;
+                        did_document.state = EscrowState::NotLoaded;
                     }
                 }
                 Ok(did_document)
@@ -1399,7 +1399,7 @@ mod tests {
                 operator_fee: vec![],
                 loader_claimed: false,
                 used_coins: vec![],
-                state: EscrowState::Unloaded,
+                state: EscrowState::NotLoaded,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
 
