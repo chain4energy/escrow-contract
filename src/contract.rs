@@ -508,10 +508,12 @@ impl EscrowContract {
         let result = escrows().load(ctx.deps.storage, escrow_id.as_str());
         match result {
             Ok(mut did_document) => {
-                let timeout = self.load_timeout.load(ctx.deps.storage)?;
-                let exp_timestamp = did_document.create_timestamp.plus_seconds(timeout.as_secs());
-                if ctx.env.block.time.ge(&exp_timestamp) {
-                    did_document.state = EscrowState::Unloaded;
+                if did_document.state == EscrowState::Loading {
+                    let timeout = self.load_timeout.load(ctx.deps.storage)?;
+                    let exp_timestamp = did_document.create_timestamp.plus_seconds(timeout.as_secs());
+                    if ctx.env.block.time.ge(&exp_timestamp) {
+                        did_document.state = EscrowState::Unloaded;
+                    }
                 }
                 Ok(did_document)
             },

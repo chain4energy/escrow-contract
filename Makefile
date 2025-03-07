@@ -83,7 +83,7 @@ stop_chain:
 	@echo "Removing all containers with label com.docker.compose.project=${DOCKER_GROUP}"
 	docker ps -a -q --filter "label=com.docker.compose.project=${DOCKER_GROUP}" | xargs -r docker rm
 	@echo "Removing the did network"
-	-docker network rm did
+	-docker network rm escrow
 
 _replace:
 	@echo "Replacing according to ${REPLACE_FILE}"
