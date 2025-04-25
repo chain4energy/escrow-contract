@@ -22,6 +22,12 @@ pub enum ContractError {
     #[error("Admin already exists")]
     AdminAlreadyExists(),
 
+    #[error("At least one contract admin is required")]
+    NoAdmin,
+
+    #[error("Invalid admin address: {0}")]
+    InvalidAdminAddress(StdError),
+
     #[error("At least one controller is required")]
     ControllerRequired(),
 
@@ -81,6 +87,11 @@ pub enum ContractError {
     #[error("Some Error")]
     SomeError, // TODO  specify error
 
+    #[error("Invalid address: {0}")]
+    InvalidAddress(StdError),
+
+    #[error("Duplicated admin: {0}")]
+    DuplicatedAdmin(String),
 
     // #[error("Coins Error")]
     // CoinsError(CoinsError), // TODO  specify error

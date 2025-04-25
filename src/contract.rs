@@ -1,17 +1,21 @@
-use std::time::Duration;
-use cosmwasm_std::{coins, from_json, to_json_binary, Addr, AllBalanceResponse, Api, Coin, Coins, Decimal, Deps, Event, Order, Reply, Response, StdError, StdResult, Storage, SubMsgResponse, SubMsgResult, Uint64};
-use cw_storage_plus::{Bound, Item, Map, MultiIndex};
-use sylvia::{contract, entry_points};
-use sylvia::types::{ExecCtx, InstantiateCtx, QueryCtx, ReplyCtx};
 use crate::error::ContractError;
-use crate::state::{escrows, CoinsExt, Escrow, EscrowController, EscrowOperator, EscrowState, Escrows, LoadedCoins, Share};
-use did_contract::contract::DidContract;
-use did_contract::state::{Controller, Did, DidDocument};
+use crate::state::{
+    escrows, CoinsExt, Escrow, EscrowController, EscrowOperator, EscrowState, Escrows, LoadedCoins,
+};
+use cosmwasm_std::{
+    Addr, AllBalanceResponse, Api, Coin, Coins, Deps, Event, Order, Response, StdError, Storage,
+};
+use cosmwasm_std::{BankMsg, CosmosMsg};
+use cosmwasm_std::{BankQuery, QueryRequest};
+use cw_storage_plus::{Bound, Item, Map};
 use did_contract::contract::sv::Querier;
+use did_contract::contract::DidContract;
+use did_contract::state::Controller;
+use std::collections::HashSet;
+use std::time::Duration;
+use sylvia::ctx::{ExecCtx, InstantiateCtx, QueryCtx};
 use sylvia::types::Remote;
-use cosmwasm_std::{SubMsg, BankMsg,  CosmosMsg, ReplyOn};
-use cosmwasm_std::{BankQuery, QueryRequest, BalanceResponse,  Uint128};
-
+use sylvia::{contract, entry_points};
 
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
@@ -44,12 +48,24 @@ impl EscrowContract {
     }
 
     #[sv::msg(instantiate)]
-    pub fn instantiate(&self, ctx: InstantiateCtx, admins: Vec<Addr> , did_contract: Addr, load_timeout: u64) ->  Result<Response, ContractError> {
-        // TODO ensure admins not empty
+    pub fn instantiate(
+        &self,
+        ctx: InstantiateCtx,
+        admins: Vec<Addr>,
+        did_contract: Addr,
+        load_timeout: u64,
+    ) -> Result<Response, ContractError> {
+        self.ensure_one_admin(&admins)?;
+        self.ensure_admin_not_duplicated(&admins)?;
+        for admin in &admins {
+            self.ensure_valid_admin(ctx.deps.api, admin.as_str())?;
+        }
+        self.ensure_valid_address(ctx.deps.api, &did_contract)?;
         // TODO ensure did contract exists
         self.save_admins(ctx.deps.storage, &admins)?;
         self.save_did_contract_address(ctx.deps.storage, &did_contract)?;
-        self.load_timeout.save(ctx.deps.storage, &Duration::from_millis(load_timeout))?;
+        self.load_timeout
+            .save(ctx.deps.storage, &Duration::from_millis(load_timeout))?;
         Ok(Response::default())
     }
 
@@ -59,7 +75,7 @@ impl EscrowContract {
     pub fn add_admin(&self, ctx: ExecCtx, new_admin: String) -> Result<Response, ContractError> {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
 
-        let new_admin = self.ensure_valid_admin(ctx.deps.api, new_admin)?;
+        let new_admin = self.ensure_valid_admin(ctx.deps.api, &new_admin)?;
 
         let mut admins: Vec<Addr> = self.admins.load(ctx.deps.storage)?;
         self.ensure_unique_admins(&admins, &new_admin)?;
@@ -71,41 +87,65 @@ impl EscrowContract {
             .add_attribute("executor", ctx.info.sender.to_string())
             .add_attribute("new_admin", new_admin.to_string());
 
-        Ok(Response::new()
-            .add_attribute("action", "add_admin")
-            .add_attribute("new_admin", new_admin.to_string())
-            .add_event(event))
+        Ok(Response::new().add_event(event))
     }
 
-
     #[sv::msg(exec)]
-    pub fn remove_admin(&self, ctx: ExecCtx, admin_to_remove: String) -> Result<Response, ContractError> {
+    pub fn remove_admin(
+        &self,
+        ctx: ExecCtx,
+        admin_to_remove: String,
+    ) -> Result<Response, ContractError> {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
 
-        let admin = self.ensure_valid_admin(ctx.deps.api, admin_to_remove)?;
+        let admin = self.ensure_valid_admin(ctx.deps.api, &admin_to_remove)?;
 
         let mut admins = self.admins.load(ctx.deps.storage)?;
 
         if let Some(pos) = admins.iter().position(|x| x == &admin) {
             admins.remove(pos);
+            self.ensure_one_admin(&admins)?;
             self.admins.save(ctx.deps.storage, &admins)?;
 
-            // TODO add event
+            let event = Event::new("remove_admin")
+                .add_attribute("executor", ctx.info.sender.to_string())
+                .add_attribute("removed_admin", admin.to_string());
 
-            Ok(Response::new()
-                .add_attribute("action", "remove_admin")
-                .add_attribute("removed_admin", admin.to_string()))
+            Ok(Response::new().add_event(event))
         } else {
             Err(ContractError::AdminNotFound())
         }
     }
 
-// TODO add events to execs
-   
+    #[sv::msg(query)]
+    pub fn get_admins(&self, ctx: QueryCtx) -> Result<Vec<Addr>, ContractError> {
+        let result = self.admins.load(ctx.deps.storage)?;
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_did_contract(&self, ctx: QueryCtx) -> Result<Addr, ContractError> {
+        let result = self.did_contract.load(ctx.deps.storage)?;
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_load_timeout(&self, ctx: QueryCtx) -> Result<Duration, ContractError> {
+        let result = self.load_timeout.load(ctx.deps.storage)?;
+        Ok(result)
+    }
+
+    // TODO add events to execs
+
     // ---- Escrow Operators ------
 
     #[sv::msg(exec)]
-    pub fn create_operator(&self, ctx: ExecCtx, operator_id: String, controllers: Vec<Controller>) -> Result<Response, ContractError> {
+    pub fn create_operator(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+        controllers: Vec<Controller>,
+    ) -> Result<Response, ContractError> {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
         for c in &controllers {
             c.ensure_valid(ctx.deps.api)?;
@@ -117,21 +157,28 @@ impl EscrowContract {
         let escrow: EscrowOperator = EscrowOperator {
             id: operator_id,
             controller: controllers,
-            enabled: true
+            enabled: true,
         };
 
         escrow.ensure_controller()?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
 
         escrow.ensure_controller_exist(ctx.deps.as_ref(), &did_contract)?;
-        match self.operators.save(ctx.deps.storage, escrow.id.clone(), &escrow) {
+        match self
+            .operators
+            .save(ctx.deps.storage, escrow.id.clone(), &escrow)
+        {
             Ok(_) => Ok(Response::default()),
-            Err(e) => Err(ContractError::EscrowOperatorError(e))
+            Err(e) => Err(ContractError::EscrowOperatorError(e)),
         }
     }
 
     #[sv::msg(exec)]
-    pub fn remove_operator(&self, ctx: ExecCtx, operator_id: String) -> Result<Response, ContractError> {
+    pub fn remove_operator(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+    ) -> Result<Response, ContractError> {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
 
         self.ensure_operator_exists(ctx.deps.storage, &operator_id)?;
@@ -143,21 +190,39 @@ impl EscrowContract {
     }
 
     #[sv::msg(exec)]
-    pub fn disable_operator(&self, ctx: ExecCtx, operator_id: String) -> Result<Response, ContractError> {
+    pub fn disable_operator(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+    ) -> Result<Response, ContractError> {
         self.enable_disable_operator(ctx, operator_id, false)
     }
 
     #[sv::msg(exec)]
-    pub fn enable_operator(&self, ctx: ExecCtx, operator_id: String) -> Result<Response, ContractError> {
+    pub fn enable_operator(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+    ) -> Result<Response, ContractError> {
         self.enable_disable_operator(ctx, operator_id, true)
     }
 
     #[sv::msg(exec)]
-    pub fn add_operator_controller(&self, ctx: ExecCtx, operator_id: String, controller: Controller) -> Result<Response, ContractError> {
+    pub fn add_operator_controller(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+        controller: Controller,
+    ) -> Result<Response, ContractError> {
         controller.ensure_valid(ctx.deps.api)?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
         let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
-        self.authorize_admin_or_operator(ctx.deps.as_ref(), &did_contract ,&ctx.info.sender, &operator)?;
+        self.authorize_admin_or_operator(
+            ctx.deps.as_ref(),
+            &did_contract,
+            &ctx.info.sender,
+            &operator,
+        )?;
 
         // TODO ensure controller existence, add that qeury to did contract
         // TODO implemnt in did contract possibility to register did usage, to block did document removal if did is used.
@@ -166,18 +231,31 @@ impl EscrowContract {
 
         operator.controller.push(controller);
 
-        match self.operators.save(ctx.deps.storage, operator.id.clone(), &operator) {
+        match self
+            .operators
+            .save(ctx.deps.storage, operator.id.clone(), &operator)
+        {
             Ok(_) => Ok(Response::default()),
-            Err(e) => Err(ContractError::EscrowOperatorError(e))
+            Err(e) => Err(ContractError::EscrowOperatorError(e)),
         }
     }
 
     #[sv::msg(exec)]
-    pub fn delete_operator_controller(&self, ctx: ExecCtx, operator_id: String, controller: Controller) -> Result<Response, ContractError> {
+    pub fn delete_operator_controller(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+        controller: Controller,
+    ) -> Result<Response, ContractError> {
         controller.ensure_valid(ctx.deps.api)?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
         let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
-        self.authorize_admin_or_operator(ctx.deps.as_ref(), &did_contract ,&ctx.info.sender, &operator)?;
+        self.authorize_admin_or_operator(
+            ctx.deps.as_ref(),
+            &did_contract,
+            &ctx.info.sender,
+            &operator,
+        )?;
 
         // TODO implemnt in did contract possibility to unregister did usage, to block did document removal if did is used.
 
@@ -189,23 +267,37 @@ impl EscrowContract {
         operator.controller.retain(|s| *s != controller);
         operator.ensure_controller()?;
 
-        match self.operators.save(ctx.deps.storage, operator.id.clone(), &operator) {
+        match self
+            .operators
+            .save(ctx.deps.storage, operator.id.clone(), &operator)
+        {
             Ok(_) => Ok(Response::default()),
-            Err(e) => Err(ContractError::EscrowOperatorError(e))
+            Err(e) => Err(ContractError::EscrowOperatorError(e)),
         }
-
     }
 
     // -- Escrow
 
     #[sv::msg(exec)]
-    pub fn create_escrow(&self, ctx: ExecCtx, escrow_id: String, operator_id: String, receiver: Controller, expected_coins: Vec<Coin>) -> Result<Response, ContractError> {
+    pub fn create_escrow(
+        &self,
+        ctx: ExecCtx,
+        escrow_id: String,
+        operator_id: String,
+        receiver: Controller,
+        expected_coins: Vec<Coin>,
+    ) -> Result<Response, ContractError> {
         // TODO is oparator enabled
 
         receiver.ensure_valid(ctx.deps.api)?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
         let operator = self.operators.load(ctx.deps.storage, operator_id.clone())?; // TODO ensure operator exists and if not return ContractError::OperatorNotExists)
-        self.authorize_admin_or_operator(ctx.deps.as_ref(), &did_contract ,&ctx.info.sender, &operator)?;
+        self.authorize_admin_or_operator(
+            ctx.deps.as_ref(),
+            &did_contract,
+            &ctx.info.sender,
+            &operator,
+        )?;
 
         let escrows = escrows();
         escrows.ensure_not_exist(ctx.deps.storage, escrow_id.as_str())?;
@@ -231,7 +323,6 @@ impl EscrowContract {
             create_timestamp: ctx.env.block.time,
         };
 
-
         let r = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow);
         match r {
             Ok(_) => {
@@ -242,11 +333,10 @@ impl EscrowContract {
                     .add_attribute("receiver", receiver.to_string())
                     .add_attribute("expected_coins", expected_coins.to_string());
                 Ok(resp.add_event(event))
-            },
-            Err(e) => Err(ContractError::EscrowOperatorError(e))
+            }
+            Err(e) => Err(ContractError::EscrowOperatorError(e)),
         }
     }
-
 
     #[sv::msg(exec)]
     pub fn load_escrow(&self, ctx: ExecCtx, escrow_id: String) -> Result<Response, ContractError> {
@@ -258,7 +348,9 @@ impl EscrowContract {
         let timeout = self.load_timeout.load(ctx.deps.storage)?;
         let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
         if ctx.env.block.time.ge(&exp_timestamp) {
-            return Err(ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout")));
+            return Err(ContractError::EscrowError(StdError::generic_err(
+                "Escrow has expired due to timeout",
+            )));
         }
 
         // TODO ensure coins equal expected coins
@@ -283,18 +375,19 @@ impl EscrowContract {
             }
         }
 
-        escrow.loaded_coins = Some(LoadedCoins{
+        escrow.loaded_coins = Some(LoadedCoins {
             coins: loaded_coins.to_vec(),
-            loader: ctx.info.sender.to_string()
+            loader: ctx.info.sender.to_string(),
         });
         escrow.lock_timestamp = Some(ctx.env.block.time);
         escrow.state = EscrowState::Locked;
 
-        if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) { // TODO ?????? save on success bank send bacause from doc:
-                                                                                       // On error the submessage execution will revert any partial state changes due to this message,
-                                                                                       // but not revert any state changes in the calling contract. If this is required,
-                                                                                       // it must be done manually in the reply entry point.
-            return Err(ContractError::EscrowOperatorError(e))
+        if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
+            // TODO ?????? save on success bank send bacause from doc:
+            // On error the submessage execution will revert any partial state changes due to this message,
+            // but not revert any state changes in the calling contract. If this is required,
+            // it must be done manually in the reply entry point.
+            return Err(ContractError::EscrowOperatorError(e));
         }
         // match escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
         //     Ok(_) => Ok(Response::default()),
@@ -305,7 +398,6 @@ impl EscrowContract {
         //     to_address: ctx.env.contract.address.to_string(),
         //     amount: ctx.info.funds,
         // });
-
 
         // let sub_msg = SubMsg::reply_on_error(msg, LOAD_ESCROW_BANK_SEND).with_payload(payload);
 
@@ -321,8 +413,14 @@ impl EscrowContract {
         //     .add_attribute("action", "send_coins"))
     }
 
-    #[sv::msg(exec)]  // TODO use standard api of sending fund to contract
-    pub fn release_escrow(&self, ctx: ExecCtx, escrow_id: String, used_coins: Vec<Coin>, operator_fee: Vec<Coin>) -> Result<Response, ContractError> {
+    #[sv::msg(exec)] // TODO use standard api of sending fund to contract
+    pub fn release_escrow(
+        &self,
+        ctx: ExecCtx,
+        escrow_id: String,
+        used_coins: Vec<Coin>,
+        operator_fee: Vec<Coin>,
+    ) -> Result<Response, ContractError> {
         // TODO ensure valid coins
         // TODO ensure that coins match loaded coins, denoms and amounts equel or less
         let escrows = escrows();
@@ -343,7 +441,7 @@ impl EscrowContract {
         }
 
         if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-            return Err(ContractError::EscrowOperatorError(e))
+            return Err(ContractError::EscrowOperatorError(e));
         }
 
         let resp = Response::new();
@@ -358,7 +456,6 @@ impl EscrowContract {
 
     #[sv::msg(exec)]
     pub fn withdraw(&self, ctx: ExecCtx, escrow_id: String) -> Result<Response, ContractError> {
-
         let escrows = escrows();
         let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
         escrow.ensure_state(EscrowState::Released)?;
@@ -367,7 +464,8 @@ impl EscrowContract {
         if !escrow.loader_claimed {
             println!("Withdrawing loader check");
             if let Some(l) = &escrow.loaded_coins {
-                if l.loader == ctx.info.sender.to_string() { // TODO or admin
+                if l.loader == ctx.info.sender.to_string() {
+                    // TODO or admin
                     println!("Withdrawing - is loader");
                     let mut ec: Coins = Coins::try_from(escrow.expected_coins.clone())?;
                     for c in &escrow.used_coins {
@@ -387,7 +485,7 @@ impl EscrowContract {
             }
         }
 
-        if !escrow.receiver_claimed || !escrow.operator_claimed{
+        if !escrow.receiver_claimed || !escrow.operator_claimed {
             println!("Withdrawing - receiver or operator");
             let did_contract = self.did_contract.load(ctx.deps.storage)?;
             let sender: Controller = ctx.info.sender.to_string().into();
@@ -413,7 +511,10 @@ impl EscrowContract {
             // }
 
             if !escrow.receiver_claimed {
-                if Remote::<DidContract>::new(did_contract.clone()).querier(&ctx.deps.querier).is_controller_of(vec![escrow.receiver.clone()], sender.clone())? {
+                if Remote::<DidContract>::new(did_contract.clone())
+                    .querier(&ctx.deps.querier)
+                    .is_controller_of(vec![escrow.receiver.clone()], sender.clone())?
+                {
                     println!("Withdrawing - is receiver");
                     let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
                     for c in escrow.operator_fee.clone() {
@@ -434,14 +535,18 @@ impl EscrowContract {
             }
 
             if !escrow.operator_claimed {
-
-                let operator = self.operators.load(ctx.deps.storage, escrow.operator_id.clone())?;
+                let operator = self
+                    .operators
+                    .load(ctx.deps.storage, escrow.operator_id.clone())?;
                 let uc: Coins = Coins::try_from(escrow.operator_fee.clone())?;
                 // for c in receiver_coins {
                 //     uc.sub(c)?;
                 // }
 
-                if Remote::<DidContract>::new(did_contract.clone()).querier(&ctx.deps.querier).is_controller_of(operator.controller, sender)? {
+                if Remote::<DidContract>::new(did_contract.clone())
+                    .querier(&ctx.deps.querier)
+                    .is_controller_of(operator.controller, sender)?
+                {
                     println!("Withdrawing - is operator");
                     let msg = CosmosMsg::Bank(BankMsg::Send {
                         to_address: ctx.info.sender.to_string(),
@@ -463,9 +568,8 @@ impl EscrowContract {
             escrow.state = EscrowState::Closed;
         }
 
-
         if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-            return Err(ContractError::EscrowOperatorError(e))
+            return Err(ContractError::EscrowOperatorError(e));
         }
 
         Ok(resp)
@@ -492,15 +596,17 @@ impl EscrowContract {
     // }
     // -------
 
-
     #[sv::msg(query)]
-    pub fn get_escrow_operator(&self, ctx: QueryCtx, operator_id: String) -> Result<EscrowOperator, ContractError> {
-
+    pub fn get_escrow_operator(
+        &self,
+        ctx: QueryCtx,
+        operator_id: String,
+    ) -> Result<EscrowOperator, ContractError> {
         let result = self.operators.load(ctx.deps.storage, operator_id);
         match result {
             Ok(did_document) => Ok(did_document),
             Err(e) => match e {
-                StdError::NotFound{ .. } => Err(ContractError::EscrowOperatorNotFound(e)),
+                StdError::NotFound { .. } => Err(ContractError::EscrowOperatorNotFound(e)),
                 _ => Err(ContractError::EscrowOperatorError(e)),
             },
         }
@@ -508,62 +614,76 @@ impl EscrowContract {
 
     #[sv::msg(query)]
     pub fn get_escrow(&self, ctx: QueryCtx, escrow_id: String) -> Result<Escrow, ContractError> {
-
         let result = escrows().load(ctx.deps.storage, escrow_id.as_str());
         match result {
             Ok(mut did_document) => {
                 if did_document.state == EscrowState::Loading {
                     let timeout = self.load_timeout.load(ctx.deps.storage)?;
-                    let exp_timestamp = did_document.create_timestamp.plus_seconds(timeout.as_secs());
+                    let exp_timestamp = did_document
+                        .create_timestamp
+                        .plus_seconds(timeout.as_secs());
                     if ctx.env.block.time.ge(&exp_timestamp) {
                         did_document.state = EscrowState::Unloaded;
                     }
                 }
                 Ok(did_document)
-            },
+            }
             Err(e) => match e {
-                StdError::NotFound{ .. } => Err(ContractError::EscrowNotFound(e)),
+                StdError::NotFound { .. } => Err(ContractError::EscrowNotFound(e)),
                 _ => Err(ContractError::EscrowError(e)),
             },
         }
     }
 
     #[sv::msg(query)]
-    pub fn get_escrow_by_operator(&self, ctx: QueryCtx, operator_id: String, limit: Option<usize>, start_after: Option<String>) -> Result<Vec<(String, Escrow)>, ContractError> {
+    pub fn get_escrow_by_operator(
+        &self,
+        ctx: QueryCtx,
+        operator_id: String,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
         let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
         let start = start_after.map(Bound::exclusive);
 
         let res: Result<Vec<_>, _> = escrows()
-        .idx
-        .operator
-        .prefix(operator_id)
-        .range(ctx.deps.storage, start, None, Order::Ascending)
-        .take(limit)
-        .collect();
+            .idx
+            .operator
+            .prefix(operator_id)
+            .range(ctx.deps.storage, start, None, Order::Ascending)
+            .take(limit)
+            .collect();
 
         match res {
             Ok(did_document) => Ok(did_document),
             Err(e) => match e {
-                StdError::NotFound{ .. } => Err(ContractError::EscrowOperatorNotFound(e)),
+                StdError::NotFound { .. } => Err(ContractError::EscrowOperatorNotFound(e)),
                 _ => Err(ContractError::EscrowOperatorError(e)),
             },
         }
-
     }
 
-    fn save_admins(&self, storage: &mut dyn Storage, admins: &Vec<Addr>) ->  Result<(), ContractError> {
+    fn save_admins(
+        &self,
+        storage: &mut dyn Storage,
+        admins: &Vec<Addr>,
+    ) -> Result<(), ContractError> {
         let result = self.admins.save(storage, admins);
         match result {
             Ok(_) => Ok(()),
-            Err(e) => Err(ContractError::EscrowError(e)) //  TODO specific error
+            Err(e) => Err(ContractError::EscrowError(e)), //  TODO specific error
         }
     }
 
-    fn save_did_contract_address(&self, storage: &mut dyn Storage, did_contract: &Addr) ->  Result<(), ContractError> {
+    fn save_did_contract_address(
+        &self,
+        storage: &mut dyn Storage,
+        did_contract: &Addr,
+    ) -> Result<(), ContractError> {
         let result = self.did_contract.save(storage, did_contract);
         match result {
             Ok(_) => Ok(()),
-            Err(e) => Err(ContractError::EscrowError(e)) //  TODO specific error
+            Err(e) => Err(ContractError::EscrowError(e)), //  TODO specific error
         }
     }
 
@@ -577,8 +697,8 @@ impl EscrowContract {
                 } else {
                     Ok(false)
                 }
-            },
-            Err(e) => Err(ContractError::EscrowError(e))
+            }
+            Err(e) => Err(ContractError::EscrowError(e)),
         }
     }
 
@@ -589,50 +709,106 @@ impl EscrowContract {
         Ok(())
     }
 
-    fn authorize_admin_or_operator(&self, deps: Deps, did_contract: &Addr, sender: &Addr, operator: &EscrowOperator) -> Result<(), ContractError> {
-        if let Err(_) =  self.authorize_admin(deps, sender) {
+    fn authorize_admin_or_operator(
+        &self,
+        deps: Deps,
+        did_contract: &Addr,
+        sender: &Addr,
+        operator: &EscrowOperator,
+    ) -> Result<(), ContractError> {
+        if let Err(_) = self.authorize_admin(deps, sender) {
             operator.authorize(deps, &did_contract, sender)?;
         }
         Ok(())
     }
 
-    fn ensure_valid_admin(&self, api: &dyn Api, admin: String) -> Result<Addr, ContractError> {
-        let addr = api.addr_validate(&admin)?;
-        Ok(addr)
-    }
+    // fn ensure_valid_admin(&self, api: &dyn Api, admin: String) -> Result<Addr, ContractError> {
+    //     let addr = api.addr_validate(&admin)?;
+    //     Ok(addr)
+    // }
 
-    fn ensure_unique_admins(&self, admins: &Vec<Addr>, new_admin: &Addr) -> Result<(), ContractError> {
+    fn ensure_unique_admins(
+        &self,
+        admins: &Vec<Addr>,
+        new_admin: &Addr,
+    ) -> Result<(), ContractError> {
         if admins.contains(new_admin) {
             Err(ContractError::AdminAlreadyExists())
         } else {
-            Ok (())
+            Ok(())
         }
     }
 
-    fn ensure_operator_not_overwritten(&self, store: &dyn Storage, operator_id: &str) -> Result<(), ContractError> {
+    fn ensure_operator_not_overwritten(
+        &self,
+        store: &dyn Storage,
+        operator_id: &str,
+    ) -> Result<(), ContractError> {
         if self.operators.has(store, operator_id.to_string()) {
             return Err(ContractError::OperatorAlreadyExists);
         }
         Ok(())
     }
 
-    fn ensure_operator_exists(&self, store: &dyn Storage, operator_id: &str) -> Result<(), ContractError> {
+    fn ensure_operator_exists(
+        &self,
+        store: &dyn Storage,
+        operator_id: &str,
+    ) -> Result<(), ContractError> {
         if !self.operators.has(store, operator_id.to_string()) {
             return Err(ContractError::OperatorDoesNotExist);
         }
         Ok(())
     }
 
-    fn enable_disable_operator(&self, ctx: ExecCtx, operator_id: String, enabled: bool) -> Result<Response, ContractError> {
+    fn enable_disable_operator(
+        &self,
+        ctx: ExecCtx,
+        operator_id: String,
+        enabled: bool,
+    ) -> Result<Response, ContractError> {
         let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
 
-        self.authorize_admin_or_operator(ctx.deps.as_ref(), &did_contract, &ctx.info.sender, &operator)?;
+        self.authorize_admin_or_operator(
+            ctx.deps.as_ref(),
+            &did_contract,
+            &ctx.info.sender,
+            &operator,
+        )?;
 
         operator.enabled = enabled;
 
-        self.operators.save(ctx.deps.storage, operator_id.clone(),  &operator)?;
+        self.operators
+            .save(ctx.deps.storage, operator_id.clone(), &operator)?;
         Ok(Response::default())
+    }
+
+    fn ensure_valid_admin(&self, api: &dyn Api, admin: &str) -> Result<Addr, ContractError> {
+        api.addr_validate(admin)
+            .map_err(|e| ContractError::InvalidAdminAddress(e))
+    }
+
+    fn ensure_valid_address(&self, api: &dyn Api, admin: &Addr) -> Result<Addr, ContractError> {
+        api.addr_validate(admin.as_str())
+            .map_err(|e| ContractError::InvalidAddress(e))
+    }
+
+    fn ensure_one_admin(&self, admins: &Vec<Addr>) -> Result<(), ContractError> {
+        if admins.is_empty() {
+            return Err(ContractError::NoAdmin);
+        }
+        Ok(())
+    }
+
+    fn ensure_admin_not_duplicated(&self, admins: &Vec<Addr>) -> Result<(), ContractError> {
+        let mut seen = HashSet::new();
+        for admin in admins {
+            if !seen.insert(admin.to_string()) {
+                return Err(ContractError::DuplicatedAdmin(admin.to_string()));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -640,127 +816,21 @@ impl EscrowContract {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
 
     use cosmwasm_std::{Coin, Decimal, StdError};
     use cw_multi_test::IntoAddr;
     use sylvia::multitest::App;
 
-    use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, sv::mt::DidContractProxy, DidContract};
-    use did_contract::state::{Controller, Did, DidDocument, Service};
-
     use crate::error::ContractError;
     use crate::state::LoadedCoins;
-    use crate::{contract::sv::mt::{CodeId, EscrowContractProxy}, state::{Escrow, EscrowOperator, EscrowState}};
-
+    use crate::{
+        contract::sv::mt::{CodeId, EscrowContractProxy},
+        state::{Escrow, EscrowState},
+    };
+    use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, DidContract};
+    use did_contract::state::Controller;
 
     // -------------------- Admin tests
-    #[test]
-    fn test_add_admin() {
-        let app = App::default();
-        let escrow_code_id = CodeId::store_code(&app);
-        let did_code_id = DidContractCodeId::store_code(&app);
-
-        let owner = "owner".into_addr();
-
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 10000).call(&owner).unwrap();
-
-        let admin1 = "admin1".into_addr();
-
-        let res = escrow_contract
-            .add_admin(admin1.to_string()).call(&owner).expect("error adding admin");
-
-        assert_eq!(res.events[0].ty, "execute");
-        assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
-
-        assert_eq!(res.events[1].ty, "wasm");
-        assert_eq!(res.events[1].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[1].attributes[0].value, escrow_contract.contract_addr.to_string());
-        assert_eq!(res.events[1].attributes[1].key, "action");
-        assert_eq!(res.events[1].attributes[1].value, "add_admin");
-        assert_eq!(res.events[1].attributes[2].key, "new_admin");
-        assert_eq!(res.events[1].attributes[2].value, admin1.to_string());
-
-        assert_eq!(res.events[2].ty, "wasm-add_admin");
-        assert_eq!(res.events[2].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[2].attributes[0].value, escrow_contract.contract_addr.to_string());
-        assert_eq!(res.events[2].attributes[1].key, "executor");
-        assert_eq!(res.events[2].attributes[1].value, owner.to_string());
-        assert_eq!(res.events[2].attributes[2].key, "new_admin");
-        assert_eq!(res.events[2].attributes[2].value, admin1.to_string());
-
-        let non_admin1 = "non_admin".into_addr();
-        let admin2 = "admin2".into_addr();
-        let res = escrow_contract
-            .add_admin(admin2.to_string()).call(&non_admin1);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Unauthorized", res.err().unwrap().to_string());
-
-        let admin3 = "admin3".into_addr();
-
-        escrow_contract
-            .add_admin(admin3.to_string()).call(&admin1).expect("error adding admin3");
-    }
-
-    #[test]
-    fn test_remove_admin() {
-        let app = App::default();
-        let escrow_code_id = CodeId::store_code(&app);
-        let did_code_id = DidContractCodeId::store_code(&app);
-
-        let owner = "owner".into_addr();
-
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
-
-        let admin1 = "admin1".into_addr();
-
-        // First, add an admin to remove later
-        escrow_contract
-            .add_admin(admin1.to_string()).call(&owner).expect("error adding admin1");
-
-        // Remove the admin
-        let res = escrow_contract
-            .remove_admin(admin1.to_string()).call(&owner).expect("error removing admin");
-
-        // Validate the response attributes and events
-        assert_eq!(res.events[0].ty, "execute");
-        assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
-
-        assert_eq!(res.events[1].ty, "wasm");
-        assert_eq!(res.events[1].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[1].attributes[0].value, escrow_contract.contract_addr.to_string());
-        assert_eq!(res.events[1].attributes[1].key, "action");
-        assert_eq!(res.events[1].attributes[1].value, "remove_admin");
-        assert_eq!(res.events[1].attributes[2].key, "removed_admin");
-        assert_eq!(res.events[1].attributes[2].value, admin1.to_string());
-
-        // Test removing a non-existing admin
-        let non_admin = "non_admin".into_addr();
-        let res = escrow_contract
-            .remove_admin(non_admin.to_string()).call(&owner);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Admin not found", res.err().unwrap().to_string());
-
-        // Test unauthorized removal attempt
-        let unauthorized_user = "unauthorized".into_addr();
-        let another_admin = "admin2".into_addr();
-
-        // Add a second admin to test unauthorized removal
-        escrow_contract
-            .add_admin(another_admin.to_string()).call(&owner).expect("error adding admin2");
-
-        let res = escrow_contract
-            .remove_admin(another_admin.to_string()).call(&unauthorized_user);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Unauthorized", res.err().unwrap().to_string());
-    }
 
     // -------------------- Operator
     #[test]
@@ -772,22 +842,32 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Test creating a valid operator
         let controller1: Controller = "controller1".into_addr().to_string().into();
         let controller2: Controller = "controller2".into_addr().to_string().into();
 
         let res = escrow_contract
-            .create_operator("operator1".to_string(), vec![controller1.clone(), controller2.clone()])
+            .create_operator(
+                "operator1".to_string(),
+                vec![controller1.clone(), controller2.clone()],
+            )
             .call(&owner)
             .expect("error creating operator");
 
         // Validate the response
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // assert_eq!(res.events[1].ty, "wasm");
         // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
@@ -804,7 +884,7 @@ mod tests {
         assert_eq!("Operator already exists", res.err().unwrap().to_string());
 
         // Test invalid controller (assuming we have some validation that fails in Controller.ensure_valid)
-        let invalid_controller: Controller = "invalid_controller".into();  // Assume this controller fails validation
+        let invalid_controller: Controller = "invalid_controller".into(); // Assume this controller fails validation
         let res = escrow_contract
             .create_operator("operator2".to_string(), vec![invalid_controller.clone()])
             .call(&owner);
@@ -829,10 +909,14 @@ mod tests {
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        
+
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Add an operator to remove later
         let controller1: Controller = "controller1".into_addr().to_string().into();
@@ -852,7 +936,10 @@ mod tests {
         // Validate the response attributes and events
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // Attempt to remove the same operator again, expecting an error
         let res = escrow_contract
@@ -890,8 +977,12 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Add an operator to disable later
         let controller1: Controller = "controller1".into_addr().to_string().into();
@@ -911,7 +1002,10 @@ mod tests {
         // Validate the response attributes and events
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // assert_eq!(res.events[1].ty, "wasm");
         // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
@@ -957,8 +1051,12 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Add an operator and disable it first
         let controller1: Controller = "controller1".into_addr().to_string().into();
@@ -988,7 +1086,10 @@ mod tests {
         // Validate the response attributes and events
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // assert_eq!(res.events[1].ty, "wasm");
         // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
@@ -1034,8 +1135,12 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Add an operator
         let controller1: Controller = "controller1".into_addr().to_string().into();
@@ -1057,7 +1162,10 @@ mod tests {
         // Validate the response attributes and events
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // assert_eq!(res.events[1].ty, "wasm");
         // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
@@ -1104,8 +1212,12 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         // Add an operator
         let controller1: Controller = "controller1".into_addr().to_string().into();
@@ -1113,7 +1225,10 @@ mod tests {
         let operator_id = "operator1".to_string();
 
         escrow_contract
-            .create_operator(operator_id.clone(), vec![controller1.clone(), controller2.clone()])
+            .create_operator(
+                operator_id.clone(),
+                vec![controller1.clone(), controller2.clone()],
+            )
             .call(&owner)
             .expect("error creating operator");
 
@@ -1126,7 +1241,10 @@ mod tests {
         // Validate the response attributes and events
         assert_eq!(res.events[0].ty, "execute");
         assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(res.events[0].attributes[0].value, escrow_contract.contract_addr.to_string());
+        assert_eq!(
+            res.events[0].attributes[0].value,
+            escrow_contract.contract_addr.to_string()
+        );
 
         // assert_eq!(res.events[1].ty, "wasm");
         // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
@@ -1146,13 +1264,17 @@ mod tests {
         assert!(!operator.controller.iter().any(|c| *c == controller2));
 
         // Attempt to delete a non-existent controller from the operator
-        let non_existent_controller: Controller = "non_existent_controller".into_addr().to_string().into();
+        let non_existent_controller: Controller =
+            "non_existent_controller".into_addr().to_string().into();
         let res = escrow_contract
             .delete_operator_controller(operator_id.clone(), non_existent_controller)
             .call(&owner);
 
         assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Did document controller not exist", res.err().unwrap().to_string());
+        assert_eq!(
+            "Did document controller not exist",
+            res.err().unwrap().to_string()
+        );
 
         // Test unauthorized controller removal attempt
         let unauthorized_user = "unauthorized_user".into_addr();
@@ -1173,8 +1295,12 @@ mod tests {
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let op_controller_addr = "operatr_controller".into_addr();
 
@@ -1185,9 +1311,9 @@ mod tests {
             .call(&owner)
             .expect("error creating operator");
 
-        let coin = Coin{
+        let coin = Coin {
             denom: "uatom".to_string(),
-            amount: 1000u128.into()
+            amount: 1000u128.into(),
         };
 
         let receiver: Controller = "controller1".into_addr().to_string().into();
@@ -1218,24 +1344,28 @@ mod tests {
         // assert_eq!(escrow.receiver_share, Decimal::percent(50));
         // assert_eq!(escrow.state, EscrowState::Loading);
 
-        let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-        assert_eq!(Escrow {
-            id: "escrow1".to_string(),
-            operator_id: "operator1".to_string(),
-            expected_coins: expected_coins.clone(),
-            loaded_coins: None,
-            operator_claimed: false,
-            receiver: receiver,
-            receiver_claimed: false,
-            operator_fee: vec![],
-            // receiver_share: receiver_share,
-            loader_claimed: false,
-            used_coins: vec![],
-            state: EscrowState::Loading,
-            lock_timestamp: None,
-            create_timestamp: escrow.create_timestamp
-
-        }, escrow)
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
+                id: "escrow1".to_string(),
+                operator_id: "operator1".to_string(),
+                expected_coins: expected_coins.clone(),
+                loaded_coins: None,
+                operator_claimed: false,
+                receiver: receiver,
+                receiver_claimed: false,
+                operator_fee: vec![],
+                // receiver_share: receiver_share,
+                loader_claimed: false,
+                used_coins: vec![],
+                state: EscrowState::Loading,
+                lock_timestamp: None,
+                create_timestamp: escrow.create_timestamp
+            },
+            escrow
+        )
     }
 
     #[test]
@@ -1243,24 +1373,31 @@ mod tests {
         let app: App<cw_multi_test::App> = App::default();
 
         let loader = "loader".into_addr();
-        let loader_coin = Coin{
+        let loader_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 10000u128.into()
+            amount: 10000u128.into(),
         };
         {
             let mut app_mut = app.app_mut();
-            let a = app_mut.sudo(
-                cw_multi_test::SudoMsg::Bank(
-                    cw_multi_test::BankSudo::Mint { to_address: loader.to_string(), amount: vec![loader_coin] }
-                )
-            ).expect("error sudo");
+            let a = app_mut
+                .sudo(cw_multi_test::SudoMsg::Bank(
+                    cw_multi_test::BankSudo::Mint {
+                        to_address: loader.to_string(),
+                        amount: vec![loader_coin],
+                    },
+                ))
+                .expect("error sudo");
         }
         let escrow_code_id = CodeId::store_code(&app);
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let op_controller_addr = "operatr_controller".into_addr();
 
@@ -1272,9 +1409,9 @@ mod tests {
             .expect("error creating operator");
 
         let controller: Controller = "controller1".into_addr().to_string().into();
-        let coin = Coin{
+        let coin = Coin {
             denom: "uatom".to_string(),
-            amount: 1000u128.into()
+            amount: 1000u128.into(),
         };
 
         let expected_coins = vec![coin.clone()];
@@ -1289,16 +1426,17 @@ mod tests {
             .call(&op_controller_addr)
             .expect("error creating escrow");
 
-
-
         // Attempt to load with insufficient funds
         let res = escrow_contract
             .load_escrow("escrow1".to_string())
             .with_funds(vec![coin.clone()].as_slice()) // Insufficient funds
             .call(&loader);
 
-            let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-            assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1316,37 +1454,47 @@ mod tests {
                 state: EscrowState::Locked,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
+            },
+            escrow
+        );
 
-            }, escrow);
-
-           let contract_coin = app.querier().query_balance(escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-           assert_eq!(coin, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(coin, contract_coin);
     }
-
 
     #[test]
     fn test_load_escrow_expired() {
         let app: App<cw_multi_test::App> = App::default();
 
         let loader = "loader".into_addr();
-        let loader_coin = Coin{
+        let loader_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 10000u128.into()
+            amount: 10000u128.into(),
         };
         {
             let mut app_mut = app.app_mut();
-            let a = app_mut.sudo(
-                cw_multi_test::SudoMsg::Bank(
-                    cw_multi_test::BankSudo::Mint { to_address: loader.to_string(), amount: vec![loader_coin] }
-                )
-            ).expect("error sudo");
+            let a = app_mut
+                .sudo(cw_multi_test::SudoMsg::Bank(
+                    cw_multi_test::BankSudo::Mint {
+                        to_address: loader.to_string(),
+                        amount: vec![loader_coin],
+                    },
+                ))
+                .expect("error sudo");
         }
         let escrow_code_id = CodeId::store_code(&app);
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 10).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 10)
+            .call(&owner)
+            .unwrap();
 
         let op_controller_addr = "operatr_controller".into_addr();
 
@@ -1358,9 +1506,9 @@ mod tests {
             .expect("error creating operator");
 
         let controller: Controller = "controller1".into_addr().to_string().into();
-        let coin = Coin{
+        let coin = Coin {
             denom: "uatom".to_string(),
-            amount: 1000u128.into()
+            amount: 1000u128.into(),
         };
 
         let expected_coins = vec![coin.clone()];
@@ -1374,21 +1522,22 @@ mod tests {
             .call(&op_controller_addr)
             .expect("error creating escrow");
 
-
-
         let res = escrow_contract
             .load_escrow("escrow1".to_string())
             .with_funds(vec![coin.clone()].as_slice())
             .call(&loader);
 
-
         assert!(res.is_err(), "Expected Ok, but got Err");
 
-        let exp_err: ContractError = ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout"));
+        let exp_err: ContractError =
+            ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout"));
         assert_eq!(exp_err, res.unwrap_err());
 
-            let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-            assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1402,35 +1551,41 @@ mod tests {
                 state: EscrowState::Unloaded,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
-
-            }, escrow);
-
+            },
+            escrow
+        );
     }
-
 
     #[test]
     fn test_release() {
         let app: App<cw_multi_test::App> = App::default();
 
         let loader = "loader".into_addr();
-        let loader_coin = Coin{
+        let loader_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 10000u128.into()
+            amount: 10000u128.into(),
         };
         {
             let mut app_mut = app.app_mut();
-            let a = app_mut.sudo(
-                cw_multi_test::SudoMsg::Bank(
-                    cw_multi_test::BankSudo::Mint { to_address: loader.to_string(), amount: vec![loader_coin] }
-                )
-            ).expect("error sudo");
+            let a = app_mut
+                .sudo(cw_multi_test::SudoMsg::Bank(
+                    cw_multi_test::BankSudo::Mint {
+                        to_address: loader.to_string(),
+                        amount: vec![loader_coin],
+                    },
+                ))
+                .expect("error sudo");
         }
         let escrow_code_id = CodeId::store_code(&app);
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let op_controller_addr = "operatr_controller".into_addr();
 
@@ -1442,9 +1597,9 @@ mod tests {
             .expect("error creating operator");
 
         let receiver: Controller = "controller1".into_addr().to_string().into();
-        let coin = Coin{
+        let coin = Coin {
             denom: "uatom".to_string(),
-            amount: 1000u128.into()
+            amount: 1000u128.into(),
         };
 
         let expected_coins = vec![coin.clone()];
@@ -1463,28 +1618,40 @@ mod tests {
         let res = escrow_contract
             .load_escrow("escrow1".to_string())
             .with_funds(vec![coin.clone()].as_slice())
-            .call(&loader).expect("load_escrow error");
+            .call(&loader)
+            .expect("load_escrow error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
         assert_eq!(coin, contract_coin);
 
         // Attempt to release coins
-        let rel_coin = Coin{
+        let rel_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 500u128.into()
+            amount: 500u128.into(),
         };
 
-        let operator_fee = Coin{
+        let operator_fee = Coin {
             denom: "uatom".to_string(),
-            amount: 250u128.into()
+            amount: 250u128.into(),
         };
 
         let res = escrow_contract
-            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()], vec![operator_fee.clone()])
-            .call(&op_controller_addr).expect("load_escrow error");
+            .release_escrow(
+                "escrow1".to_string(),
+                vec![rel_coin.clone()],
+                vec![operator_fee.clone()],
+            )
+            .call(&op_controller_addr)
+            .expect("load_escrow error");
 
-        let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-            assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1502,28 +1669,50 @@ mod tests {
                 state: EscrowState::Released,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
+            },
+            escrow
+        );
 
-            }, escrow);
-
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-            assert_eq!(coin, contract_coin);
-        let contract_coin = app.querier().query_balance(&loader, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(coin, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(&loader, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 9000u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(receiver.to_string(), &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(receiver.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 0u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-            let contract_coin = app.querier().query_balance(op_controller.to_string(), &coin.denom).expect("error taking cntract coins");
-            assert_eq!(Coin{
-                    denom: "uatom".to_string(),
-                    amount: 0u128.into()
-                }, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(op_controller.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
+                denom: "uatom".to_string(),
+                amount: 0u128.into()
+            },
+            contract_coin
+        );
     }
 
     #[test]
@@ -1531,24 +1720,31 @@ mod tests {
         let app: App<cw_multi_test::App> = App::default();
 
         let loader = "loader".into_addr();
-        let loader_coin = Coin{
+        let loader_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 10000u128.into()
+            amount: 10000u128.into(),
         };
         {
             let mut app_mut = app.app_mut();
-            let a = app_mut.sudo(
-                cw_multi_test::SudoMsg::Bank(
-                    cw_multi_test::BankSudo::Mint { to_address: loader.to_string(), amount: vec![loader_coin] }
-                )
-            ).expect("error sudo");
+            let a = app_mut
+                .sudo(cw_multi_test::SudoMsg::Bank(
+                    cw_multi_test::BankSudo::Mint {
+                        to_address: loader.to_string(),
+                        amount: vec![loader_coin],
+                    },
+                ))
+                .expect("error sudo");
         }
         let escrow_code_id = CodeId::store_code(&app);
         let did_code_id = DidContractCodeId::store_code(&app);
 
         let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let op_controller_addr = "operatr_controller".into_addr();
 
@@ -1561,9 +1757,9 @@ mod tests {
 
         let receiver_addr = "controller1".into_addr();
         let receiver: Controller = receiver_addr.to_string().into();
-        let coin = Coin{
+        let coin = Coin {
             denom: "uatom".to_string(),
-            amount: 1000u128.into()
+            amount: 1000u128.into(),
         };
 
         let expected_coins = vec![coin.clone()];
@@ -1582,78 +1778,135 @@ mod tests {
         let res = escrow_contract
             .load_escrow("escrow1".to_string())
             .with_funds(vec![coin.clone()].as_slice())
-            .call(&loader).expect("load_escrow error");
+            .call(&loader)
+            .expect("load_escrow error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
         assert_eq!(coin, contract_coin);
 
         // Attempt to release coins
-        let rel_coin = Coin{
+        let rel_coin = Coin {
             denom: "uatom".to_string(),
-            amount: 500u128.into()
+            amount: 500u128.into(),
         };
 
-        let operator_fee = Coin{
+        let operator_fee = Coin {
             denom: "uatom".to_string(),
-            amount: 250u128.into()
+            amount: 250u128.into(),
         };
 
         let res = escrow_contract
-            .release_escrow("escrow1".to_string(), vec![rel_coin.clone()], vec![operator_fee.clone()])
-            .call(&op_controller_addr).expect("load_escrow error");
+            .release_escrow(
+                "escrow1".to_string(),
+                vec![rel_coin.clone()],
+                vec![operator_fee.clone()],
+            )
+            .call(&op_controller_addr)
+            .expect("load_escrow error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-            assert_eq!(coin, contract_coin);
-        let contract_coin = app.querier().query_balance(&loader, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(coin, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(&loader, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 9000u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(receiver.to_string(), &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(receiver.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 0u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-            let contract_coin = app.querier().query_balance(op_controller.to_string(), &coin.denom).expect("error taking cntract coins");
-            assert_eq!(Coin{
-                    denom: "uatom".to_string(),
-                    amount: 0u128.into()
-                }, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(op_controller.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
+                denom: "uatom".to_string(),
+                amount: 0u128.into()
+            },
+            contract_coin
+        );
 
         // ---- Withdraw loader --
 
         let res = escrow_contract
             .withdraw("escrow1".to_string())
-            .call(&loader).expect("withdraw loader error");
+            .call(&loader)
+            .expect("withdraw loader error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 500u128.into()
-            }, contract_coin);
-        let contract_coin = app.querier().query_balance(&loader, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+            },
+            contract_coin
+        );
+        let contract_coin = app
+            .querier()
+            .query_balance(&loader, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 9500u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(receiver.to_string(), &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(receiver.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 0u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(op_controller.to_string(), &coin.denom).expect("error taking cntract coins");
-            assert_eq!(Coin{
-                    denom: "uatom".to_string(),
-                    amount: 0u128.into()
-                }, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(op_controller.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
+                denom: "uatom".to_string(),
+                amount: 0u128.into()
+            },
+            contract_coin
+        );
 
-
-        let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-        assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1671,41 +1924,69 @@ mod tests {
                 state: EscrowState::Released,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp,
-
-        }, escrow);
+            },
+            escrow
+        );
 
         // ---- Withdraw oparator --
 
         let res = escrow_contract
             .withdraw("escrow1".to_string())
-            .call(&op_controller_addr).expect("withdraw loader error");
+            .call(&op_controller_addr)
+            .expect("withdraw loader error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 250u128.into()
-            }, contract_coin);
-        let contract_coin = app.querier().query_balance(&loader, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+            },
+            contract_coin
+        );
+        let contract_coin = app
+            .querier()
+            .query_balance(&loader, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 9500u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(receiver.to_string(), &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(receiver.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 0u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(op_controller.to_string(), &coin.denom).expect("error taking cntract coins");
-            assert_eq!(Coin{
-                    denom: "uatom".to_string(),
-                    amount: 250u128.into()
-                }, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(op_controller.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
+                denom: "uatom".to_string(),
+                amount: 250u128.into()
+            },
+            contract_coin
+        );
 
-
-        let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-        assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1723,41 +2004,69 @@ mod tests {
                 state: EscrowState::Released,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
-
-        }, escrow);
+            },
+            escrow
+        );
 
         // ---- Withdraw receiver --
 
         let res = escrow_contract
             .withdraw("escrow1".to_string())
-            .call(&receiver_addr).expect("withdraw loader error");
+            .call(&receiver_addr)
+            .expect("withdraw loader error");
 
-        let contract_coin = app.querier().query_balance(&escrow_contract.contract_addr, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(&escrow_contract.contract_addr, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 0u128.into()
-            }, contract_coin);
-        let contract_coin = app.querier().query_balance(&loader, &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+            },
+            contract_coin
+        );
+        let contract_coin = app
+            .querier()
+            .query_balance(&loader, &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 9500u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(receiver.to_string(), &coin.denom).expect("error taking cntract coins");
-        assert_eq!(Coin{
+        let contract_coin = app
+            .querier()
+            .query_balance(receiver.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
                 denom: "uatom".to_string(),
                 amount: 250u128.into()
-            }, contract_coin);
+            },
+            contract_coin
+        );
 
-        let contract_coin = app.querier().query_balance(op_controller.to_string(), &coin.denom).expect("error taking cntract coins");
-            assert_eq!(Coin{
-                    denom: "uatom".to_string(),
-                    amount: 250u128.into()
-                }, contract_coin);
+        let contract_coin = app
+            .querier()
+            .query_balance(op_controller.to_string(), &coin.denom)
+            .expect("error taking cntract coins");
+        assert_eq!(
+            Coin {
+                denom: "uatom".to_string(),
+                amount: 250u128.into()
+            },
+            contract_coin
+        );
 
-
-        let escrow = escrow_contract.get_escrow("escrow1".to_string()).expect("getting escrow error");
-        assert_eq!(Escrow {
+        let escrow = escrow_contract
+            .get_escrow("escrow1".to_string())
+            .expect("getting escrow error");
+        assert_eq!(
+            Escrow {
                 id: "escrow1".to_string(),
                 operator_id: "operator1".to_string(),
                 expected_coins: expected_coins.clone(),
@@ -1775,9 +2084,9 @@ mod tests {
                 state: EscrowState::Closed,
                 lock_timestamp: escrow.lock_timestamp,
                 create_timestamp: escrow.create_timestamp
-
-        }, escrow);
-
+            },
+            escrow
+        );
     }
 
     #[test]
@@ -1789,14 +2098,20 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
-
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let operator = "operator-1";
         let no_did = escrow_contract.get_escrow_operator(operator.to_string());
         assert!(no_did.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Generic error: Querier contract error: Escrow operator not found", no_did.err().unwrap().to_string());
+        assert_eq!(
+            "Generic error: Querier contract error: Escrow operator not found",
+            no_did.err().unwrap().to_string()
+        );
     }
 
     #[test]
@@ -1808,13 +2123,20 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let escrow = "escrow-1";
         let no_did = escrow_contract.get_escrow(escrow.to_string());
         assert!(no_did.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Generic error: Querier contract error: Escrow not found", no_did.err().unwrap().to_string());
+        assert_eq!(
+            "Generic error: Querier contract error: Escrow not found",
+            no_did.err().unwrap().to_string()
+        );
     }
 
     #[test]
@@ -1826,8 +2148,12 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let escrow = "escrow-1";
         let escrows = escrow_contract.get_escrow_by_operator(escrow.to_string(), None, None);
@@ -1844,21 +2170,29 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
-
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let operator = "operator-1";
         let escrow = "escrow-1";
         let receiver = "receiver-1".into_addr().to_string();
         let expected_coins = vec![Coin::new(123u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow.to_string(), operator.to_string(), receiver.into(), expected_coins).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow.to_string(),
+                operator.to_string(),
+                receiver.into(),
+                expected_coins,
+            )
+            .call(&owner);
         assert!(result.is_err(), "Expected Err, but got an Ok");
         assert_eq!("type: escrow_contract::state::EscrowOperator; key: [00, 09, 6F, 70, 65, 72, 61, 74, 6F, 72, 73, 6F, 70, 65, 72, 61, 74, 6F, 72, 2D, 31] not found", result.err().unwrap().to_string());
-
     }
-
 
     #[test]
     fn get_escrow_by_operator_index() {
@@ -1869,21 +2203,31 @@ mod tests {
         let owner = "owner".into_addr();
 
         // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> = did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id.instantiate(vec![owner.clone()], did_contract.contract_addr, 60000).call(&owner).unwrap();
+        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+            did_code_id.instantiate().call(&owner).unwrap();
+        let escrow_contract = escrow_code_id
+            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .call(&owner)
+            .unwrap();
 
         let conrller = "cont1".into_addr().to_string();
 
         let operator1: &str = "operator-1";
-        let result = escrow_contract.create_operator(operator1.to_string(), vec![conrller.clone().into()]).call(&owner);
+        let result = escrow_contract
+            .create_operator(operator1.to_string(), vec![conrller.clone().into()])
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let operator2 = "operator-2";
-        let result = escrow_contract.create_operator(operator2.to_string(), vec![conrller.clone().into()]).call(&owner);
+        let result = escrow_contract
+            .create_operator(operator2.to_string(), vec![conrller.clone().into()])
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let operator3 = "operator-3";
-        let result = escrow_contract.create_operator(operator3.to_string(), vec![conrller.clone().into()]).call(&owner);
+        let result = escrow_contract
+            .create_operator(operator3.to_string(), vec![conrller.clone().into()])
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 1 escrows
@@ -1891,13 +2235,27 @@ mod tests {
         let receiver1 = "receiver-1".into_addr();
         let expected_coins1 = vec![Coin::new(123u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow1.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins1.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow1.to_string(),
+                operator1.to_string(),
+                receiver1.to_string().into(),
+                expected_coins1.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow2 = "escrow-2";
         let expected_coins2 = vec![Coin::new(13u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow2.to_string(), operator1.to_string(), receiver1.to_string().into(), expected_coins2.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow2.to_string(),
+                operator1.to_string(),
+                receiver1.to_string().into(),
+                expected_coins2.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 2 escrows
@@ -1905,13 +2263,27 @@ mod tests {
         let escrow3 = "escrow-3";
         let expected_coins3 = vec![Coin::new(1293u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow3.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins3.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow3.to_string(),
+                operator2.to_string(),
+                receiver1.to_string().into(),
+                expected_coins3.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow4 = "escrow-4";
         let expected_coins4 = vec![Coin::new(77u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow4.to_string(), operator2.to_string(), receiver1.to_string().into(), expected_coins4.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow4.to_string(),
+                operator2.to_string(),
+                receiver1.to_string().into(),
+                expected_coins4.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 3 escrows
@@ -1919,25 +2291,40 @@ mod tests {
         let escrow5 = "escrow-5";
         let expected_coins5 = vec![Coin::new(1293u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow5.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins5.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow5.to_string(),
+                operator3.to_string(),
+                receiver1.to_string().into(),
+                expected_coins5.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         let escrow6 = "escrow-6";
         let expected_coins6 = vec![Coin::new(77u64, "uc4e")];
         // let share = Decimal::from_str("0.34").expect("error parsing decimale");
-        let result = escrow_contract.create_escrow(escrow6.to_string(), operator3.to_string(), receiver1.to_string().into(), expected_coins6.clone()).call(&owner);
+        let result = escrow_contract
+            .create_escrow(
+                escrow6.to_string(),
+                operator3.to_string(),
+                receiver1.to_string().into(),
+                expected_coins6.clone(),
+            )
+            .call(&owner);
         assert!(result.is_ok(), "Expected Ok, but got an Err");
 
         // opertor 1 escrows check
 
-        let escrow_operators = escrow_contract.get_escrow_by_operator(operator1.to_string(), None, None);
+        let escrow_operators =
+            escrow_contract.get_escrow_by_operator(operator1.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(0);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow1, id);
 
         assert_eq!(
@@ -1962,7 +2349,7 @@ mod tests {
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(1);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow2, id);
 
         assert_eq!(
@@ -1987,14 +2374,15 @@ mod tests {
 
         // opertor 2 escrows check
 
-        let escrow_operators = escrow_contract.get_escrow_by_operator(operator2.to_string(), None, None);
+        let escrow_operators =
+            escrow_contract.get_escrow_by_operator(operator2.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(0);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow3, id);
 
         assert_eq!(
@@ -2019,7 +2407,7 @@ mod tests {
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(1);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow4, id);
 
         assert_eq!(
@@ -2044,14 +2432,15 @@ mod tests {
 
         // opertor 3 escrows check
 
-        let escrow_operators = escrow_contract.get_escrow_by_operator(operator3.to_string(), None, None);
+        let escrow_operators =
+            escrow_contract.get_escrow_by_operator(operator3.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(0);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow5, id);
 
         assert_eq!(
@@ -2076,7 +2465,7 @@ mod tests {
 
         let escrow: Option<&(String, Escrow)> = escrow_operators.get(1);
         assert_eq!(true, escrow.is_some());
-        let (id, escrow_operator)= escrow.unwrap();
+        let (id, escrow_operator) = escrow.unwrap();
         assert_eq!(escrow6, id);
 
         assert_eq!(
@@ -2099,5 +2488,4 @@ mod tests {
             escrow_operator.clone(),
         );
     }
-
 }

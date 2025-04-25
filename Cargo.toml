@@ -7,22 +7,22 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cosmwasm-std = { version = "2.1.3", features = ["staking"] } # remove staking feature
+cosmwasm-std = { version = "~2.2.2", features = ["staking"] } # remove staking feature
 serde = { version = "1.0.210", default-features = false, features = ["derive"] }
 cw-storage-plus = "2.0.0"
 cosmwasm-schema = "2.1.3"
 schemars = "0.8.21"
-sylvia = "1.2.1"
-constcat = "0.5.0"
-thiserror = "1.0.64"
-did-contract = { git = "https://github.com/chain4energy/did-contract.git", tag = "v0.0.1-beta001" }
+sylvia = "1.3.5"
+constcat = "0.6.0"
+thiserror = "2.0.12"
+did-contract = { git = "https://github.com/chain4energy/did-contract.git", tag = "v0.0.1-beta003" }
 # did-contract = { path = "../did", features = ["library"] }
 
 [dev-dependencies]
-sylvia = { version = "1.1.0", features = ["mt"] }
+sylvia = { version = "1.3.5", features = ["mt"] }
 cw-multi-test = "2.1.1"
 serde_json = "1.0.128"
-cosmrs = { version = "0.20", features = ["cosmwasm"] }
+cosmrs = { version = "0.22", features = ["cosmwasm"] }
 serial_test = "3.1"
-e2e-test-suite = { git = "http://gitlab.sce-ovoo.pl/c4e/chain/test/e2e-contract-test/e2e-test-suite.git", tag = "v0.0.1-beta002" }
+e2e-test-suite = { git = "http://gitlab.sce-ovoo.pl/c4e/chain/test/e2e-contract-test/e2e-test-suite.git", tag = "v0.0.1-beta003" }
 # e2e-test-suite = { path = "../../e2e-test/e2e-test-suite" }

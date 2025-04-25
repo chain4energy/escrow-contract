@@ -1,8 +1,8 @@
 
 use std::collections::HashMap;
 
-use cosmrs::{crypto::secp256k1::SigningKey, proto::cosmos::bank::v1beta1::QueryBalanceResponse};
-use cosmwasm_std::{Coin, Decimal};
+use cosmrs::crypto::secp256k1::SigningKey;
+use cosmwasm_std::Coin;
 use serde_json::json;
 use serial_test::serial;
 use e2e_test_suite::{derive_private_key_from_mnemonic, error::CosmError, ContractInit, ADDR_PREFIX};
@@ -31,7 +31,7 @@ fn test_add_admin() {
     println!("RUN create_did_document");
     let context = e2e_test_suite::get_context();
     
-    let (key, address) = create_key_and_address();
+    let (key, _address) = create_key_and_address();
 
     let wrong_admin_key = derive_private_key_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same",    HD_PATH).expect("create key error");
 
@@ -73,9 +73,9 @@ fn test_create_operator() {
     println!("RUN create_did_document");
     let context = e2e_test_suite::get_context();
     
-    let (key, address) = create_key_and_address();
+    let (key, _address) = create_key_and_address();
 
-    let (operator_key, operator_address) = create_key_and_address_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same");
+    let (_operator_key, operator_address) = create_key_and_address_from_mnemonic("dinosaur sound goddess cradle brush you mammal prize little bike surround actor frost edit off debris print correct knee photo fluid game mad same");
 
     let escrow_contract_address = context.get_contracts_info().get(ESCROW_CONTRACT_NAME).expect("no contacr info").contract_address.clone();
 
@@ -534,10 +534,10 @@ fn my_test_4() {
 fn init_suite() {
     let mut contracts: HashMap<String, ContractInit> = HashMap::new();
     contracts.insert(DID_CONTRACT_NAME.into(), ContractInit { contract_path: DID_CONTRACT_PATH.to_string(), json_ncoded_init_args: "{}".to_string(), label: "did_contract".to_string() });
-    e2e_test_suite::init_suite(CONTRACT_CREATOR_MNEMONIC, HD_PATH, &contracts, "c4e-chain-e2e-test:v1.4.3", "escrow-contract", "escrow");
-    let (owner_key, owner_addr) = create_key_and_address();
+    e2e_test_suite::init_suite(CONTRACT_CREATOR_MNEMONIC, HD_PATH, &contracts, "c4e-chain-e2e-test:v1.4.3", "escrow-contract", "escrow", "chain-node-escrow");
+    let (_owner_key, owner_addr) = create_key_and_address();
 
-    let mut did_contract_address: String;
+    let did_contract_address: String;
     {
         let context = e2e_test_suite::get_context();
         did_contract_address = context.get_contracts_info().get(DID_CONTRACT_NAME).expect("no did contract info").contract_address.clone();
@@ -550,7 +550,7 @@ fn init_suite() {
             label: "escrow_contract".to_string()
         }
     );
-    let context: std::sync::RwLockReadGuard<'_, e2e_test_suite::TestSuiteContextInternal> = e2e_test_suite::get_context();
+    let _context: std::sync::RwLockReadGuard<'_, e2e_test_suite::TestSuiteContextInternal> = e2e_test_suite::get_context();
 
     
 }
