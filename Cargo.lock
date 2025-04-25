@@ -827,7 +827,6 @@ dependencies = [
 [[package]]
 name = "did-contract"
 version = "0.1.0"
-source = "git+https://github.com/chain4energy/did-contract.git?tag=v0.0.1-beta003#265f93c50cbf0a0c3a30359df6a81da43aa45ba1"
 dependencies = [
  "constcat",
  "cosmwasm-schema",

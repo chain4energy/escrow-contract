@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Coin, Coins, Deps, StdError, Storage, Timestamp};
 use cw_storage_plus::{Index, IndexList, IndexedMap, MultiIndex};
@@ -39,6 +41,16 @@ impl EscrowOperator {
         // let did_contract = did_contract.load(deps.storage)?;
         if !Remote::<DidContract>::new(did_contract.clone()).querier(&deps.querier).do_controllers_exist(self.controller.clone())? {
             return Err(ContractError::ControllerDoesNotExist())
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_controllers_not_duplicated(&self) -> Result<(), ContractError> {
+        let mut seen = HashSet::new();
+        for controller in &self.controller {
+            if !seen.insert(controller.to_string()) {
+                return Err(ContractError::DuplicatedController(controller.to_string()));
+            }
         }
         Ok(())
     }

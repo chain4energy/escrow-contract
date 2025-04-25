@@ -93,6 +93,9 @@ pub enum ContractError {
     #[error("Duplicated admin: {0}")]
     DuplicatedAdmin(String),
 
+    #[error("Duplicated controller: {0}")]
+    DuplicatedController(String),
+
     // #[error("Coins Error")]
     // CoinsError(CoinsError), // TODO  specify error
 }

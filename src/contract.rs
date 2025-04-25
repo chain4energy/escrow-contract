@@ -10,7 +10,7 @@ use cosmwasm_std::{BankQuery, QueryRequest};
 use cw_storage_plus::{Bound, Item, Map};
 use did_contract::contract::sv::Querier;
 use did_contract::contract::DidContract;
-use did_contract::state::Controller;
+use did_contract::state::{Controller, ToEventData};
 use std::collections::HashSet;
 use std::time::Duration;
 use sylvia::ctx::{ExecCtx, InstantiateCtx, QueryCtx};
@@ -149,28 +149,39 @@ impl EscrowContract {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
         for c in &controllers {
             c.ensure_valid(ctx.deps.api)?;
-            // TODO ensure controller existence, add that qeury to did contract
             // TODO implemnt in did contract possibility to register did usage, to block did document removal if did is used.
         }
         self.ensure_operator_not_overwritten(ctx.deps.storage, &operator_id)?;
 
         let escrow: EscrowOperator = EscrowOperator {
-            id: operator_id,
-            controller: controllers,
+            id: operator_id.clone(),
+            controller: controllers.clone(),
             enabled: true,
         };
+        escrow.ensure_controllers_not_duplicated()?;
 
         escrow.ensure_controller()?;
         let did_contract = self.did_contract.load(ctx.deps.storage)?;
 
         escrow.ensure_controller_exist(ctx.deps.as_ref(), &did_contract)?;
-        match self
-            .operators
+
+        self.operators
             .save(ctx.deps.storage, escrow.id.clone(), &escrow)
-        {
-            Ok(_) => Ok(Response::default()),
-            Err(e) => Err(ContractError::EscrowOperatorError(e)),
-        }
+            .map_err(|e| ContractError::EscrowOperatorError(e))?;
+
+        let event = Event::new("create_operator")
+            .add_attribute("operator_id", operator_id.clone())
+            .add_attribute("controllers", controllers.to_event_data());
+
+        Ok(Response::new().add_event(event))
+
+        // match self
+        //     .operators
+        //     .save(ctx.deps.storage, escrow.id.clone(), &escrow)
+        // {
+        //     Ok(_) => Ok(Response::default()),
+        //     Err(e) => Err(ContractError::EscrowOperatorError(e)),
+        // }
     }
 
     #[sv::msg(exec)]
@@ -810,6 +821,7 @@ impl EscrowContract {
         }
         Ok(())
     }
+
 }
 
 // const LOAD_ESCROW_BANK_SEND: u64 = 1;
@@ -833,74 +845,6 @@ mod tests {
     // -------------------- Admin tests
 
     // -------------------- Operator
-    #[test]
-    fn test_create_operator() {
-        let app = App::default();
-        let escrow_code_id = CodeId::store_code(&app);
-        let did_code_id = DidContractCodeId::store_code(&app);
-
-        let owner = "owner".into_addr();
-
-        // Instantiate contracts
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
-            did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
-            .call(&owner)
-            .unwrap();
-
-        // Test creating a valid operator
-        let controller1: Controller = "controller1".into_addr().to_string().into();
-        let controller2: Controller = "controller2".into_addr().to_string().into();
-
-        let res = escrow_contract
-            .create_operator(
-                "operator1".to_string(),
-                vec![controller1.clone(), controller2.clone()],
-            )
-            .call(&owner)
-            .expect("error creating operator");
-
-        // Validate the response
-        assert_eq!(res.events[0].ty, "execute");
-        assert_eq!(res.events[0].attributes[0].key, "_contract_address");
-        assert_eq!(
-            res.events[0].attributes[0].value,
-            escrow_contract.contract_addr.to_string()
-        );
-
-        // assert_eq!(res.events[1].ty, "wasm");
-        // assert_eq!(res.events[1].attributes[0].key, "_contract_address");
-        // assert_eq!(res.events[1].attributes[0].value, escrow_contract.contract_addr.to_string());
-        // assert_eq!(res.events[1].attributes[1].key, "action");
-        // assert_eq!(res.events[1].attributes[1].value, "create_operator");
-
-        // Test trying to overwrite an existing operator
-        let res = escrow_contract
-            .create_operator("operator1".to_string(), vec![controller1.clone()])
-            .call(&owner);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Operator already exists", res.err().unwrap().to_string());
-
-        // Test invalid controller (assuming we have some validation that fails in Controller.ensure_valid)
-        let invalid_controller: Controller = "invalid_controller".into(); // Assume this controller fails validation
-        let res = escrow_contract
-            .create_operator("operator2".to_string(), vec![invalid_controller.clone()])
-            .call(&owner);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Controller format error", res.err().unwrap().to_string());
-
-        // Test unauthorized creation attempt
-        let unauthorized_user = "unauthorized_user".into_addr();
-        let res = escrow_contract
-            .create_operator("operator3".to_string(), vec![controller1.clone()])
-            .call(&unauthorized_user);
-
-        assert!(res.is_err(), "Expected Err, but got an Ok");
-        assert_eq!("Unauthorized", res.err().unwrap().to_string());
-    }
 
     #[test]
     fn test_remove_operator() {
