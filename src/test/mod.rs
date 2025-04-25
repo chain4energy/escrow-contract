@@ -30,3 +30,6 @@ mod enable_operator;
 
 #[cfg(test)]
 mod add_operator_controller;
+
+#[cfg(test)]
+mod delete_operator_controller;
