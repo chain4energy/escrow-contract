@@ -1,8 +1,6 @@
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
 
-use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, DidContract};
-
 use crate::contract::{sv::mt::{CodeId, EscrowContractProxy}, EscrowContract};
 
 #[test]

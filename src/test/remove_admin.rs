@@ -197,7 +197,6 @@ fn test_cannot_remove_last_admin() {
     let did_code_id = DidContractCodeId::store_code(&app);
     
     let only_admin = "only_admin".into_addr();
-    let auth_address = "cw721_address".into_addr();
 
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&only_admin).unwrap();
@@ -224,7 +223,6 @@ fn test_remove_same_admin_twice() {
     let did_code_id = DidContractCodeId::store_code(&app);
     
     let admin = "only_admin".into_addr();
-    let auth_address = "cw721_address".into_addr();
 
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&admin).unwrap();

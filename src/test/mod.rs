@@ -18,3 +18,15 @@ mod get_load_timeout;
 
 #[cfg(test)]
 mod create_operator;
+
+#[cfg(test)]
+mod remove_operator;
+
+#[cfg(test)]
+mod disable_operator;
+
+#[cfg(test)]
+mod enable_operator;
+
+#[cfg(test)]
+mod add_operator_controller;
