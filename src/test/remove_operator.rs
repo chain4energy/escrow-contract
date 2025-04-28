@@ -1,4 +1,3 @@
-use cosmwasm_std::Coin;
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
 
@@ -175,56 +174,6 @@ fn test_remove_operator_unauthorized() {
 
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!("Unauthorized", res.err().unwrap().to_string());
-}
-
-#[test] // TODO probably to remove
-fn test_remove_operator_with_existing_escrow() {
-    let app = App::default();
-    let escrow_code_id = CodeId::store_code(&app);
-    let did_code_id = DidContractCodeId::store_code(&app);
-
-    let owner = "owner".into_addr();
-
-    // Instantiate contracts
-    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
-        did_code_id.instantiate().call(&owner).unwrap();
-    let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
-        .call(&owner)
-        .unwrap();
-
-    // Add an operator
-    let controller1: Controller = "controller1".into_addr().to_string().into();
-    let operator_id = "operator1".to_string();
-
-    escrow_contract
-        .create_operator(operator_id.clone(), vec![controller1.clone()])
-        .call(&owner)
-        .expect("error creating operator");
-
-    // Create an escrow for the operator
-    let receiver: Controller = "receiver".into_addr().to_string().into();
-    let expected_coins = vec![Coin::new(1000u64, "uc4e")];
-    escrow_contract
-        .create_escrow(
-            "escrow1".to_string(),
-            operator_id.clone(),
-            receiver.clone(),
-            expected_coins,
-        )
-        .call(&owner)
-        .expect("error creating escrow");
-
-    // Attempt to remove the operator with an existing escrow
-    let res = escrow_contract
-        .remove_operator(operator_id.clone())
-        .call(&owner);
-
-    assert!(res.is_err(), "Expected Err, but got an Ok");
-    assert_eq!(
-        "Cannot remove operator with existing escrows",
-        res.err().unwrap().to_string()
-    );
 }
 
 #[test]

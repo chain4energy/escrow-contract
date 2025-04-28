@@ -37,14 +37,17 @@ pub enum ContractError {
     #[error("Escrow operator not found")]
     EscrowOperatorNotFound(StdError),
 
-    #[error("Escrow not found")]
-    EscrowNotFound(StdError),
+    #[error("Escrow not found: {0}")]
+    EscrowNotFound(String),
 
-    #[error("Escrow error")]
-    EscrowError(StdError),
+    #[error("Escrow error: {0}: {1}")]
+    EscrowError(String, StdError),
 
-    #[error("Escrow operator error")]
-    EscrowOperatorError(StdError),
+    #[error("Escrow has expired")]
+    EscrowExpired,
+
+    #[error("Escrow operator error: {0}: {1}")]
+    EscrowOperatorError(String, StdError),
 
     #[error("Operator does not extist")]
     OperatorNotExists,
@@ -96,6 +99,18 @@ pub enum ContractError {
     #[error("Duplicated controller: {0}")]
     DuplicatedController(String),
 
+    #[error("Did contract address error: {0}: {1}")]
+    DidContractAddressError(String, StdError),
+
+    #[error("Escrow operator disabled: {0}")]
+    EscowOperatorDisabled(String),
+
+    #[error("Escrow operator enabled: {0}")]
+    EscowOperatorEnabled(String),
+
+
+    #[error("Admin error: {0}: {1}")]
+    AdminError(String, StdError),
     // #[error("Coins Error")]
     // CoinsError(CoinsError), // TODO  specify error
 }

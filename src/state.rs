@@ -54,6 +54,20 @@ impl EscrowOperator {
         }
         Ok(())
     }
+
+    pub(crate) fn ensure_enabled(&self) -> Result<(), ContractError> {
+        if !self.enabled {
+            return Err(ContractError::EscowOperatorDisabled(self.id.clone()));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_disabled(&self) -> Result<(), ContractError> {
+        if self.enabled {
+            return Err(ContractError::EscowOperatorEnabled(self.id.clone()));
+        }
+        Ok(())
+    }
 }
 
 pub(crate) trait EscrowController {

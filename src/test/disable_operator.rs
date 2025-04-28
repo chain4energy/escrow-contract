@@ -216,3 +216,47 @@ fn test_disable_operator() {
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!("Unauthorized", res.err().unwrap().to_string());
 }
+
+#[test]
+fn test_disable_already_disabled_operator() {
+    let app = App::default();
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr.clone(),
+            60000,
+        )
+        .call(&owner)
+        .unwrap();
+
+    // Add an operator
+    let controller1: Controller = "controller1".into_addr().to_string().into();
+    let operator_id = "operator1".to_string();
+
+    escrow_contract
+        .create_operator(operator_id.clone(), vec![controller1.clone()])
+        .call(&owner)
+        .expect("error creating operator");
+
+    // Disable the operator
+    escrow_contract
+        .disable_operator(operator_id.clone())
+        .call(&owner)
+        .expect("error disabling operator");
+
+    // Attempt to disable the operator again
+    let res = escrow_contract
+        .disable_operator(operator_id.clone())
+        .call(&owner);
+
+    assert!(res.is_err(), "Expected Err, but got an Ok");
+    assert_eq!("Escrow operator disabled: operator1", res.err().unwrap().to_string());
+}

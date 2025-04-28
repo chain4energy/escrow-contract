@@ -27,11 +27,6 @@ pub struct EscrowContract {
     pub load_timeout: Item<Duration>,
     // pub(crate) escrows: escrows()
 }
-// ---------------------------------------------------------------------------------------------------------------------------
-// |                                                                                                                         |
-// | TODO !!!!!!!!!!!!!!!!!!!!!!!  remove receiver_share from escrow, make final shares provided by operator on release step |
-// |                                                                                                                         |
-// ---------------------------------------------------------------------------------------------------------------------------
 
 // TODO add ensuring operator is enabled for all operator operation - escrow
 #[entry_points]
@@ -125,8 +120,7 @@ impl EscrowContract {
 
     #[sv::msg(query)]
     pub fn get_did_contract(&self, ctx: QueryCtx) -> Result<Addr, ContractError> {
-        let result = self.did_contract.load(ctx.deps.storage)?;
-        Ok(result)
+        self.load_did_contract_address(ctx.deps.storage)
     }
 
     #[sv::msg(query)]
@@ -153,35 +147,24 @@ impl EscrowContract {
         }
         self.ensure_operator_not_overwritten(ctx.deps.storage, &operator_id)?;
 
-        let escrow: EscrowOperator = EscrowOperator {
+        let operator: EscrowOperator = EscrowOperator {
             id: operator_id.clone(),
             controller: controllers.clone(),
             enabled: true,
         };
-        escrow.ensure_controllers_not_duplicated()?;
+        operator.ensure_controllers_not_duplicated()?;
 
-        escrow.ensure_controller()?;
-        let did_contract = self.did_contract.load(ctx.deps.storage)?;
+        operator.ensure_controller()?;
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
 
-        escrow.ensure_controller_exist(ctx.deps.as_ref(), &did_contract)?;
-
-        self.operators
-            .save(ctx.deps.storage, escrow.id.clone(), &escrow)
-            .map_err(|e| ContractError::EscrowOperatorError(e))?;
+        operator.ensure_controller_exist(ctx.deps.as_ref(), &did_contract)?;
+        self.save_operator(ctx.deps.storage, &operator)?;
 
         let event = Event::new("create_operator")
             .add_attribute("operator_id", operator_id.clone())
             .add_attribute("controllers", controllers.to_event_data());
 
         Ok(Response::new().add_event(event))
-
-        // match self
-        //     .operators
-        //     .save(ctx.deps.storage, escrow.id.clone(), &escrow)
-        // {
-        //     Ok(_) => Ok(Response::default()),
-        //     Err(e) => Err(ContractError::EscrowOperatorError(e)),
-        // }
     }
 
     #[sv::msg(exec)]
@@ -193,7 +176,6 @@ impl EscrowContract {
         self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
 
         self.ensure_operator_exists(ctx.deps.storage, &operator_id)?;
-        // TODO ensure no escrow exists for this operator
         // TODO implemnt in did contract possibility to unregister did usage, to block did document removal if did is used.
 
         self.operators.remove(ctx.deps.storage, operator_id.clone());
@@ -228,9 +210,8 @@ impl EscrowContract {
         controller: Controller,
     ) -> Result<Response, ContractError> {
         controller.ensure_valid(ctx.deps.api)?;
-        self.ensure_operator_exists(ctx.deps.storage, &operator_id)?;
-        let did_contract = self.did_contract.load(ctx.deps.storage)?;
-        let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
+        let mut operator = self.ensure_load_operator(ctx.deps.storage, &operator_id)?;
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
         self.authorize_admin_or_operator(
             ctx.deps.as_ref(),
             &did_contract,
@@ -245,9 +226,7 @@ impl EscrowContract {
         operator.controller.push(controller.clone());
         operator.ensure_controllers_not_duplicated()?;
 
-        self.operators
-            .save(ctx.deps.storage, operator.id.clone(), &operator)
-            .map_err(|e| ContractError::EscrowOperatorError(e))?;
+        self.save_operator(ctx.deps.storage, &operator)?;
 
         let event = Event::new("add_operator_controller")
             .add_attribute("operator_id", operator_id.clone())
@@ -264,8 +243,9 @@ impl EscrowContract {
         controller: Controller,
     ) -> Result<Response, ContractError> {
         controller.ensure_valid(ctx.deps.api)?;
-        let did_contract = self.did_contract.load(ctx.deps.storage)?;
-        let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
+        let mut operator = self.ensure_load_operator(ctx.deps.storage, &operator_id)?;
+
         self.authorize_admin_or_operator(
             ctx.deps.as_ref(),
             &did_contract,
@@ -283,9 +263,7 @@ impl EscrowContract {
         operator.controller.retain(|s| *s != controller);
         operator.ensure_controller()?;
 
-        self.operators
-            .save(ctx.deps.storage, operator.id.clone(), &operator)
-            .map_err(|e| ContractError::EscrowOperatorError(e))?;
+        self.save_operator(ctx.deps.storage, &operator)?;
 
         let event = Event::new("delete_operator_controller")
             .add_attribute("operator_id", operator_id.clone())
@@ -305,11 +283,10 @@ impl EscrowContract {
         receiver: Controller,
         expected_coins: Vec<Coin>,
     ) -> Result<Response, ContractError> {
-        // TODO is oparator enabled
-
         receiver.ensure_valid(ctx.deps.api)?;
-        let did_contract = self.did_contract.load(ctx.deps.storage)?;
-        let operator = self.operators.load(ctx.deps.storage, operator_id.clone())?; // TODO ensure operator exists and if not return ContractError::OperatorNotExists)
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
+        let operator = self.ensure_load_operator(ctx.deps.storage, &operator_id)?;
+        operator.ensure_enabled()?;
         self.authorize_admin_or_operator(
             ctx.deps.as_ref(),
             &did_contract,
@@ -340,20 +317,14 @@ impl EscrowContract {
             lock_timestamp: None,
             create_timestamp: ctx.env.block.time,
         };
-
-        let r = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow);
-        match r {
-            Ok(_) => {
-                let resp = Response::new();
-                let event = Event::new("escrow_create")
-                    .add_attribute("escrow_id", escrow.id.as_str())
-                    .add_attribute("operator_id", operator_id)
-                    .add_attribute("receiver", receiver.to_string())
-                    .add_attribute("expected_coins", expected_coins.to_string());
-                Ok(resp.add_event(event))
-            }
-            Err(e) => Err(ContractError::EscrowOperatorError(e)),
-        }
+        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
+        let resp = Response::new();
+        let event = Event::new("escrow_create")
+            .add_attribute("escrow_id", escrow.id.as_str())
+            .add_attribute("operator_id", operator_id)
+            .add_attribute("receiver", receiver.to_string())
+            .add_attribute("expected_coins", expected_coins.to_string());
+        Ok(resp.add_event(event))
     }
 
     #[sv::msg(exec)]
@@ -366,9 +337,7 @@ impl EscrowContract {
         let timeout = self.load_timeout.load(ctx.deps.storage)?;
         let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
         if ctx.env.block.time.ge(&exp_timestamp) {
-            return Err(ContractError::EscrowError(StdError::generic_err(
-                "Escrow has expired due to timeout",
-            )));
+            return Err(ContractError::EscrowExpired);
         }
 
         // TODO ensure coins equal expected coins
@@ -400,13 +369,12 @@ impl EscrowContract {
         escrow.lock_timestamp = Some(ctx.env.block.time);
         escrow.state = EscrowState::Locked;
 
-        if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
+        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
             // TODO ?????? save on success bank send bacause from doc:
             // On error the submessage execution will revert any partial state changes due to this message,
             // but not revert any state changes in the calling contract. If this is required,
             // it must be done manually in the reply entry point.
-            return Err(ContractError::EscrowOperatorError(e));
-        }
+
         // match escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
         //     Ok(_) => Ok(Response::default()),
         //     Err(e) => Err(ContractError::EscrowOperatorError(e))
@@ -457,10 +425,7 @@ impl EscrowContract {
         if used_coins == expected {
             escrow.loader_claimed = true
         }
-
-        if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-            return Err(ContractError::EscrowOperatorError(e));
-        }
+        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
 
         let resp = Response::new();
         let event = Event::new("escrow_release")
@@ -505,7 +470,7 @@ impl EscrowContract {
 
         if !escrow.receiver_claimed || !escrow.operator_claimed {
             println!("Withdrawing - receiver or operator");
-            let did_contract = self.did_contract.load(ctx.deps.storage)?;
+            let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
             let sender: Controller = ctx.info.sender.to_string().into();
 
             // let receiver_share = escrow.receiver_share;
@@ -585,10 +550,7 @@ impl EscrowContract {
         if escrow.receiver_claimed && escrow.loader_claimed && escrow.operator_claimed {
             escrow.state = EscrowState::Closed;
         }
-
-        if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-            return Err(ContractError::EscrowOperatorError(e));
-        }
+        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
 
         Ok(resp)
     }
@@ -620,37 +582,22 @@ impl EscrowContract {
         ctx: QueryCtx,
         operator_id: String,
     ) -> Result<EscrowOperator, ContractError> {
-        let result = self.operators.load(ctx.deps.storage, operator_id);
-        match result {
-            Ok(did_document) => Ok(did_document),
-            Err(e) => match e {
-                StdError::NotFound { .. } => Err(ContractError::EscrowOperatorNotFound(e)),
-                _ => Err(ContractError::EscrowOperatorError(e)),
-            },
-        }
+        self.ensure_load_operator(ctx.deps.storage, &operator_id)
     }
 
     #[sv::msg(query)]
     pub fn get_escrow(&self, ctx: QueryCtx, escrow_id: String) -> Result<Escrow, ContractError> {
-        let result = escrows().load(ctx.deps.storage, escrow_id.as_str());
-        match result {
-            Ok(mut did_document) => {
-                if did_document.state == EscrowState::Loading {
-                    let timeout = self.load_timeout.load(ctx.deps.storage)?;
-                    let exp_timestamp = did_document
-                        .create_timestamp
-                        .plus_seconds(timeout.as_secs());
-                    if ctx.env.block.time.ge(&exp_timestamp) {
-                        did_document.state = EscrowState::Unloaded;
-                    }
-                }
-                Ok(did_document)
+        let mut escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, escrows(), &escrow_id)?;
+        if escrow.state == EscrowState::Loading {
+            let timeout = self.load_timeout.load(ctx.deps.storage)?;
+            let exp_timestamp = escrow
+                .create_timestamp
+                .plus_seconds(timeout.as_secs());
+            if ctx.env.block.time.ge(&exp_timestamp) {
+                escrow.state = EscrowState::Unloaded;
             }
-            Err(e) => match e {
-                StdError::NotFound { .. } => Err(ContractError::EscrowNotFound(e)),
-                _ => Err(ContractError::EscrowError(e)),
-            },
         }
+        Ok(escrow)
     }
 
     #[sv::msg(query)]
@@ -676,7 +623,10 @@ impl EscrowContract {
             Ok(did_document) => Ok(did_document),
             Err(e) => match e {
                 StdError::NotFound { .. } => Err(ContractError::EscrowOperatorNotFound(e)),
-                _ => Err(ContractError::EscrowOperatorError(e)),
+                _ => Err(ContractError::EscrowOperatorError(
+                    "load operator escrows".to_string(),
+                    e,
+                )),
             },
         }
     }
@@ -689,7 +639,7 @@ impl EscrowContract {
         let result = self.admins.save(storage, admins);
         match result {
             Ok(_) => Ok(()),
-            Err(e) => Err(ContractError::EscrowError(e)), //  TODO specific error
+            Err(e) => Err(ContractError::AdminError("save admin".to_string(), e)),
         }
     }
 
@@ -698,11 +648,9 @@ impl EscrowContract {
         storage: &mut dyn Storage,
         did_contract: &Addr,
     ) -> Result<(), ContractError> {
-        let result = self.did_contract.save(storage, did_contract);
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(ContractError::EscrowError(e)), //  TODO specific error
-        }
+        self.did_contract.save(storage, did_contract).map_err(|e| {
+            ContractError::DidContractAddressError("save did contract address".to_string(), e)
+        })
     }
 
     fn is_admin(&self, deps: Deps, sender: &Addr) -> Result<bool, ContractError> {
@@ -716,7 +664,7 @@ impl EscrowContract {
                     Ok(false)
                 }
             }
-            Err(e) => Err(ContractError::EscrowError(e)),
+            Err(e) => Err(ContractError::AdminError("load admin".to_string(), e)),
         }
     }
 
@@ -785,10 +733,9 @@ impl EscrowContract {
         operator_id: String,
         enabled: bool,
     ) -> Result<Response, ContractError> {
-        self.ensure_operator_exists(ctx.deps.storage, &operator_id)?;
+        let mut operator = self.ensure_load_operator(ctx.deps.storage, &operator_id)?;
 
-        let mut operator = self.operators.load(ctx.deps.storage, operator_id.clone())?;
-        let did_contract = self.did_contract.load(ctx.deps.storage)?;
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
 
         self.authorize_admin_or_operator(
             ctx.deps.as_ref(),
@@ -797,6 +744,11 @@ impl EscrowContract {
             &operator,
         )?;
 
+        if enabled {
+            operator.ensure_disabled()?;
+        } else {
+            operator.ensure_enabled()?;
+        }
         operator.enabled = enabled;
 
         self.operators
@@ -837,6 +789,79 @@ impl EscrowContract {
             }
         }
         Ok(())
+    }
+
+    fn load_did_contract_address(&self, storage: &dyn Storage) -> Result<Addr, ContractError> {
+        self.did_contract
+            .load(storage)
+            .map_err(|e| ContractError::DidContractAddressError("load error".to_string(), e))
+    }
+
+    fn load_operator(
+        &self,
+        storage: &dyn Storage,
+        operator_id: &str,
+    ) -> Result<Option<EscrowOperator>, ContractError> {
+        self.operators
+            .may_load(storage, operator_id.to_string())
+            .map_err(|e| ContractError::EscrowOperatorError("load error".to_string(), e))
+    }
+
+    fn save_operator(
+        &self,
+        storage: &mut dyn Storage,
+        operator: &EscrowOperator,
+    ) -> Result<(), ContractError> {
+        self.operators
+            .save(storage, operator.id.clone(), operator)
+            .map_err(|e| ContractError::EscrowOperatorError("save operator".to_string(), e))
+    }
+
+    fn ensure_load_operator(
+        &self,
+        storage: &dyn Storage,
+        operator_id: &str,
+    ) -> Result<EscrowOperator, ContractError> {
+        let operator = self.load_operator(storage, operator_id)?;
+        match operator {
+            Some(op) => Ok(op),
+            None => Err(ContractError::OperatorDoesNotExist),
+        }
+    }
+
+    fn load_escrow_from_storage(
+        &self,
+        storage: &dyn Storage,
+        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrow_id: &str,
+    ) -> Result<Option<Escrow>, ContractError> {
+        escrows
+            .may_load(storage, escrow_id)
+            .map_err(|e| ContractError::EscrowError("load escrow".to_string(), e))
+    }
+
+    fn ensure_load_escrow_from_storage(
+        &self,
+        storage: &dyn Storage,
+        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrow_id: &str,
+    ) -> Result<Escrow, ContractError> {
+        let escrow = self.load_escrow_from_storage(storage, escrows, escrow_id)?;
+        match escrow {
+            Some(esc) => Ok(esc),
+            None => Err(ContractError::EscrowNotFound(escrow_id.to_string())),
+        }
+    }
+
+    fn save_escrow_in_storage(
+        &self,
+        storage: &mut dyn Storage,
+        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrow: &Escrow,
+    ) -> Result<(), ContractError> {
+        escrows
+            .save(storage, &escrow.id.as_str(), &escrow)
+            .map_err(|e| ContractError::EscrowError("save escrow".to_string(), e))
     }
 }
 
@@ -1106,7 +1131,7 @@ mod tests {
         assert!(res.is_err(), "Expected Ok, but got Err");
 
         let exp_err: ContractError =
-            ContractError::EscrowError(StdError::generic_err("Escrow has expired due to timeout"));
+            ContractError::EscrowExpired;
         assert_eq!(exp_err, res.unwrap_err());
 
         let escrow = escrow_contract
