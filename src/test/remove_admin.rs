@@ -16,7 +16,7 @@ fn test_remove_admin() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -92,7 +92,7 @@ fn test_remove_admin_success() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -141,7 +141,7 @@ fn test_remove_admin_non_existent() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -167,7 +167,7 @@ fn test_remove_admin_unauthorized() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -201,7 +201,7 @@ fn test_cannot_remove_last_admin() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&only_admin).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![only_admin.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![only_admin.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&only_admin)
         .unwrap();
 
@@ -227,7 +227,7 @@ fn test_remove_same_admin_twice() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&admin).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![admin.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![admin.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&admin)
         .unwrap();
 
@@ -263,7 +263,7 @@ fn test_remove_admin_invalid_format() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 

@@ -23,7 +23,7 @@ fn test_delete_operator_controller() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -106,7 +106,7 @@ fn test_delete_operator_controller_success() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -170,7 +170,7 @@ fn test_delete_operator_controller_nonexistent_controller() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -208,7 +208,7 @@ fn test_delete_operator_controller_unauthorized() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -243,7 +243,7 @@ fn test_delete_operator_controller_last_controller() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -280,7 +280,7 @@ fn test_delete_operator_controller_with_invalid_format() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 

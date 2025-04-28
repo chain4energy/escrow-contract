@@ -18,7 +18,7 @@ fn test_instantiate_success() {
         .instantiate(
             vec![admin1.clone(), admin2.clone()],
             did_contract1.clone(),
-            1000,
+            1000, 5*24*3600*1000,
         )
         .call(&admin1)
         .expect("instantiate should succeed");
@@ -48,7 +48,7 @@ fn test_instantiate_no_admins_should_fail() {
     let admin1 = "admin1".into_addr();
 
     let contract_result = code_id
-        .instantiate(vec![], did_contract1.clone(), 1000)
+        .instantiate(vec![], did_contract1.clone(), 1000, 5*24*3600*1000)
         .call(&admin1);
     assert!(contract_result.is_err());
     assert_eq!(
@@ -68,7 +68,7 @@ fn test_instantiate_with_duplicate_admins_should_fail() {
 
 
     let contract_result = code_id
-        .instantiate(vec![admin.clone(), admin.clone()], did_contract1.clone(), 1000)
+        .instantiate(vec![admin.clone(), admin.clone()], did_contract1.clone(), 1000, 5*24*3600*1000)
         .call(&admin);
     assert!(contract_result.is_err());
     assert_eq!(
@@ -86,7 +86,7 @@ fn test_instantiate_with_invalid_admin_address_should_fail() {
     let did_contract1 = "nft_contract1".into_addr();
 
     let contract_result = code_id
-        .instantiate(vec![invalid_admin.clone()], did_contract1.clone(), 1000)
+        .instantiate(vec![invalid_admin.clone()], did_contract1.clone(), 1000, 5*24*3600*1000)
         .call(&invalid_admin);
     assert!(contract_result.is_err());
     assert_eq!(
@@ -105,7 +105,7 @@ fn test_instantiate_with_invalid_did_conract_address_should_fail() {
     let invalid_did_contract = Addr::unchecked("invalid_did_contract");
 
     let contract_result = code_id
-        .instantiate(vec![admin.clone()], invalid_did_contract.clone(), 1000)
+        .instantiate(vec![admin.clone()], invalid_did_contract.clone(), 1000, 5*24*3600*1000)
         .call(&admin);
     assert!(contract_result.is_err());
     assert_eq!(

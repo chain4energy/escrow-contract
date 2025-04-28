@@ -39,3 +39,9 @@ mod create_escrow;
 
 #[cfg(test)]
 mod load_escrow;
+
+#[cfg(test)]
+mod set_load_timeout;
+
+#[cfg(test)]
+mod set_release_timeout;

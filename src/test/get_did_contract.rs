@@ -14,7 +14,7 @@ fn test_get_did_contract_success() {
 
     let escrow_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, EscrowContract> =
         escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract_address.clone(), 10000)
+            .instantiate(vec![owner.clone()], did_contract_address.clone(), 10000, 5*24*3600*1000)
             .call(&owner)
             .unwrap();
 

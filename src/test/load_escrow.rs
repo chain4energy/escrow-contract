@@ -52,7 +52,7 @@ fn test_load_escrow_success() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -200,7 +200,7 @@ fn test_load_escrow_success_many_denoms() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -318,7 +318,7 @@ fn test_load_escrow_not_found() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -373,7 +373,7 @@ fn test_load_escrow_operator_does_not_exist() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -459,7 +459,7 @@ fn test_load_escrow_invalid_state() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -547,7 +547,7 @@ fn test_load_escrow_operator_disabled() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -631,7 +631,7 @@ fn test_load_escrow_timeout_exceeded() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -713,7 +713,7 @@ fn test_load_escrow_insufficient_funds() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -791,7 +791,7 @@ fn test_load_escrow_wrong_denom_funds() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();
@@ -869,7 +869,7 @@ fn test_load_escrow_wrong_many_denomoms_funds() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000,
+            60000, 5*24*3600*1000,
         )
         .call(&owner)
         .unwrap();

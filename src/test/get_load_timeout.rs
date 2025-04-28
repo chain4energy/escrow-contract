@@ -14,7 +14,7 @@ fn test_get_load_timeout_success() {
 
     let escrow_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, EscrowContract> =
         escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract_address.clone(), load_timeout)
+            .instantiate(vec![owner.clone()], did_contract_address.clone(), load_timeout, 5*24*3600*1000)
             .call(&owner)
             .unwrap();
 
@@ -36,7 +36,7 @@ fn test_get_load_timeout_not_set() {
     // Instantiate the contract without setting a load timeout
     let escrow_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, EscrowContract> =
         escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract_address.clone(), 0)
+            .instantiate(vec![owner.clone()], did_contract_address.clone(), 0, 5*24*3600*1000)
             .call(&owner)
             .unwrap();
 

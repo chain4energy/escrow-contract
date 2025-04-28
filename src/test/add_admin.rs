@@ -18,7 +18,7 @@ fn test_add_admin() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -75,7 +75,7 @@ fn test_add_admin_success() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -118,7 +118,7 @@ fn test_add_admin_duplicate() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -151,7 +151,7 @@ fn test_add_admin_unauthorized() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -176,7 +176,7 @@ fn test_add_admin_invalid_format() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 10000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 

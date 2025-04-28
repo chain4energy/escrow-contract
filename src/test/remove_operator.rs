@@ -22,7 +22,7 @@ fn test_remove_operator() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -88,7 +88,7 @@ fn test_remove_operator_success() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -128,7 +128,7 @@ fn test_remove_operator_not_found() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -153,7 +153,7 @@ fn test_remove_operator_unauthorized() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 
@@ -188,7 +188,7 @@ fn test_remove_operator_with_event_verification() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
         .call(&owner)
         .unwrap();
 

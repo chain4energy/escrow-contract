@@ -26,6 +26,7 @@ pub struct EscrowContract {
     pub did_contract: Item<Addr>,
     pub operators: Map<String, EscrowOperator>,
     pub load_timeout: Item<Duration>,
+    pub release_timeout: Item<Duration>,
     // pub(crate) escrows: escrows()
 }
 
@@ -40,6 +41,7 @@ impl EscrowContract {
             did_contract: Item::new("did_contract"),
             operators: Map::new("operators"),
             load_timeout: Item::new("load_timeout"),
+            release_timeout: Item::new("release_timeout"),
         }
     }
 
@@ -50,6 +52,7 @@ impl EscrowContract {
         admins: Vec<Addr>,
         did_contract: Addr,
         load_timeout: u64,
+        release_timeout: u64,
     ) -> Result<Response, ContractError> {
         self.ensure_one_admin(&admins)?;
         self.ensure_admin_not_duplicated(&admins)?;
@@ -62,6 +65,8 @@ impl EscrowContract {
         self.save_did_contract_address(ctx.deps.storage, &did_contract)?;
         self.load_timeout
             .save(ctx.deps.storage, &Duration::from_millis(load_timeout))?;
+        self.release_timeout
+            .save(ctx.deps.storage, &Duration::from_millis(release_timeout))?;
         Ok(Response::default())
     }
 
@@ -124,13 +129,43 @@ impl EscrowContract {
         self.load_did_contract_address(ctx.deps.storage)
     }
 
+    // ------ timeouts
+
+    #[sv::msg(exec)]
+    pub fn set_load_timeout(&self, ctx: ExecCtx, load_timeout: u64) -> Result<Response, ContractError> {
+        self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
+
+        self.load_timeout
+            .save(ctx.deps.storage, &Duration::from_millis(load_timeout))?;
+        let event = Event::new("set_load_timeout")
+        .add_attribute("timeout", load_timeout.to_string());
+
+    Ok(Response::new().add_event(event))
+    }
+
     #[sv::msg(query)]
     pub fn get_load_timeout(&self, ctx: QueryCtx) -> Result<Duration, ContractError> {
         let result = self.load_timeout.load(ctx.deps.storage)?;
         Ok(result)
     }
 
-    // TODO add events to execs
+    #[sv::msg(exec)]
+    pub fn set_release_timeout(&self, ctx: ExecCtx, release_timeout: u64) -> Result<Response, ContractError> {
+        self.authorize_admin(ctx.deps.as_ref(), &ctx.info.sender)?;
+
+        self.release_timeout
+            .save(ctx.deps.storage, &Duration::from_millis(release_timeout))?;
+        let event = Event::new("set_release_timeout")
+            .add_attribute("timeout", release_timeout.to_string());
+
+        Ok(Response::new().add_event(event))
+    }
+
+    #[sv::msg(query)]
+    pub fn get_release_timeout(&self, ctx: QueryCtx) -> Result<Duration, ContractError> {
+        let result = self.release_timeout.load(ctx.deps.storage)?;
+        Ok(result)
+    }
 
     // ---- Escrow Operators ------
 
@@ -951,7 +986,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1048,7 +1088,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 10)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                10,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1138,7 +1183,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1297,7 +1347,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1656,7 +1711,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1681,7 +1741,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1706,7 +1771,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1728,7 +1798,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
@@ -1761,7 +1836,12 @@ mod tests {
         let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
             did_code_id.instantiate().call(&owner).unwrap();
         let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
+            .instantiate(
+                vec![owner.clone()],
+                did_contract.contract_addr,
+                60000,
+                5 * 24 * 3600 * 1000,
+            )
             .call(&owner)
             .unwrap();
 
