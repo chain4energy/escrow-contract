@@ -16,7 +16,7 @@ pub enum ContractError {
     #[error("No coins")]
     NoCoins,
 
-    #[error("Coins not match: expected {0} != got {1}")]
+    #[error("Coins not match: expected {0}, got {1}")]
     CoinsMismatch(String, String),
 
     #[error("Unauthorized")]
@@ -49,8 +49,8 @@ pub enum ContractError {
     #[error("Escrow error: {0}: {1}")]
     EscrowError(String, StdError),
 
-    #[error("Escrow has expired")]
-    EscrowExpired,
+    #[error("Escrow has expired: {0}")]
+    EscrowExpired(String),
 
     #[error("Escrow operator error: {0}: {1}")]
     EscrowOperatorError(String, StdError),

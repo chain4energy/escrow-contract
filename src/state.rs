@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::format;
 
 use crate::error::ContractError;
 use cosmwasm_schema::cw_serde;
@@ -150,9 +151,11 @@ pub struct LoadedCoins {
 pub enum EscrowState {
     Loading,
     Locked,
-    Unloaded,
+
     Released,
     Closed,
+    FailedLoadingTimeout,
+    FailedReleaseTimeout
     // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
 }
 
@@ -164,7 +167,8 @@ impl EscrowState {
             EscrowState::Locked => "locked".to_string(),
             EscrowState::Released => "released".to_string(),
             EscrowState::Closed => "closed".to_string(),
-            EscrowState::Unloaded => "unloaded".to_string(),
+            EscrowState::FailedLoadingTimeout => "failed_loading_timout".to_string(),
+            EscrowState::FailedReleaseTimeout => "failed_release_timout".to_string(),
         }
     }
 }

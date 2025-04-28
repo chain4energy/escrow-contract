@@ -45,3 +45,6 @@ mod set_load_timeout;
 
 #[cfg(test)]
 mod set_release_timeout;
+
+#[cfg(test)]
+mod release_escrow;

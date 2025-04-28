@@ -27,7 +27,8 @@ fn test_create_escrow_by_admin_success() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -131,7 +132,8 @@ fn test_create_escrow_by_operator_success() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -236,7 +238,8 @@ fn test_create_escrow_operator_not_found() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -273,7 +276,8 @@ fn test_create_escrow_invalid_receiver() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -322,7 +326,8 @@ fn test_create_escrow_duplicate_id() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -374,7 +379,8 @@ fn test_create_escrow_with_disabled_operator() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -431,7 +437,8 @@ fn test_create_escrow_unauthorized() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -478,7 +485,8 @@ fn test_create_escrow_no_coins() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -525,7 +533,8 @@ fn test_create_escrow_with_zero_value_coins() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -572,7 +581,8 @@ fn test_create_escrow_with_duplicated_coins() {
         .instantiate(
             vec![owner.clone()],
             did_contract.contract_addr.clone(),
-            60000, 5*24*3600*1000,
+            60000,
+            5 * 24 * 3600 * 1000,
         )
         .call(&owner)
         .unwrap();
@@ -651,7 +661,12 @@ fn test_create_escrow_success() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000, 5*24*3600*1000)
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr,
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
         .call(&owner)
         .unwrap();
 
@@ -732,7 +747,12 @@ fn test_create_escrow_operator_does_not_exist() {
     let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
         did_code_id.instantiate().call(&owner).unwrap();
     let escrow_contract = escrow_code_id
-        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000, 5*24*3600*1000)
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr.clone(),
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
         .call(&owner)
         .unwrap();
 
@@ -752,4 +772,42 @@ fn test_create_escrow_operator_does_not_exist() {
     // Verify the error
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!("Operator does not exist", res.err().unwrap().to_string());
+}
+
+#[test]
+fn create_escrow_no_operator() {
+    let app = App::default();
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr,
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
+        .call(&owner)
+        .unwrap();
+
+    let operator = "operator-1";
+    let escrow = "escrow-1";
+    let receiver = "receiver-1".into_addr().to_string();
+    let expected_coins = vec![Coin::new(123u64, "uc4e")];
+    // let share = Decimal::from_str("0.34").expect("error parsing decimale");
+    let result = escrow_contract
+        .create_escrow(
+            escrow.to_string(),
+            operator.to_string(),
+            receiver.into(),
+            expected_coins,
+        )
+        .call(&owner);
+    assert!(result.is_err(), "Expected Err, but got an Ok");
+    assert_eq!("Operator does not exist", result.err().unwrap().to_string());
 }
