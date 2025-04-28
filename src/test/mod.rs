@@ -33,3 +33,6 @@ mod add_operator_controller;
 
 #[cfg(test)]
 mod delete_operator_controller;
+
+#[cfg(test)]
+mod create_escrow;

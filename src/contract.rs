@@ -297,9 +297,8 @@ impl EscrowContract {
         let escrows = escrows();
         escrows.ensure_not_exist(ctx.deps.storage, escrow_id.as_str())?;
 
-        // receiver_share.ensure_in_range()?;
         let expected_coins = Coins::deduplicated_coins(expected_coins)?;
-        // TODO some expected coins validation: > 0, at least 1 denom
+        expected_coins.ensure_any_coins()?;
 
         let escrow = Escrow {
             id: escrow_id,
@@ -309,7 +308,6 @@ impl EscrowContract {
             operator_claimed: false,
             receiver: receiver.clone(),
             receiver_claimed: false,
-            // receiver_share: receiver_share,
             loader_claimed: false,
             used_coins: vec![],
             operator_fee: vec![],
@@ -889,85 +887,7 @@ mod tests {
 
     // -------------------- Escrow
 
-    #[test]
-    fn test_create_escrow_success() {
-        let app = App::default();
-        let escrow_code_id = CodeId::store_code(&app);
-        let did_code_id = DidContractCodeId::store_code(&app);
-
-        let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
-            did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id
-            .instantiate(vec![owner.clone()], did_contract.contract_addr, 60000)
-            .call(&owner)
-            .unwrap();
-
-        let op_controller_addr = "operatr_controller".into_addr();
-
-        let op_controller: Controller = op_controller_addr.to_string().into();
-
-        let res = escrow_contract
-            .create_operator("operator1".to_string(), vec![op_controller.clone()])
-            .call(&owner)
-            .expect("error creating operator");
-
-        let coin = Coin {
-            denom: "uatom".to_string(),
-            amount: 1000u128.into(),
-        };
-
-        let receiver: Controller = "controller1".into_addr().to_string().into();
-        let expected_coins = vec![coin];
-        let receiver_share = Decimal::percent(50);
-
-        let res = escrow_contract
-            .create_escrow(
-                "escrow1".to_string(),
-                "operator1".to_string(),
-                receiver.clone(),
-                expected_coins.clone(),
-                // receiver_share,
-            )
-            .call(&op_controller_addr)
-            .expect("error creating escrow");
-
-        // Verify escrow creation success attributes
-        assert_eq!(res.events[0].ty, "execute");
-        // assert_eq!(res.events[1].ty, "wasm");
-        // assert_eq!(res.events[1].attributes[1].key, "action");
-        // assert_eq!(res.events[1].attributes[1].value, "create_escrow");
-
-        // // Query to verify the escrow has been created correctly
-        // let escrow = escrow_contract.escrows().query("escrow1").expect("query error");
-        // assert_eq!(escrow.expected_coins[0].denom, "uatom");
-        // assert_eq!(escrow.expected_coins[0].amount, Uint128::new(1000));
-        // assert_eq!(escrow.receiver_share, Decimal::percent(50));
-        // assert_eq!(escrow.state, EscrowState::Loading);
-
-        let escrow = escrow_contract
-            .get_escrow("escrow1".to_string())
-            .expect("getting escrow error");
-        assert_eq!(
-            Escrow {
-                id: "escrow1".to_string(),
-                operator_id: "operator1".to_string(),
-                expected_coins: expected_coins.clone(),
-                loaded_coins: None,
-                operator_claimed: false,
-                receiver: receiver,
-                receiver_claimed: false,
-                operator_fee: vec![],
-                // receiver_share: receiver_share,
-                loader_claimed: false,
-                used_coins: vec![],
-                state: EscrowState::Loading,
-                lock_timestamp: None,
-                create_timestamp: escrow.create_timestamp
-            },
-            escrow
-        )
-    }
+    
 
     #[test]
     fn test_load_escrow() {

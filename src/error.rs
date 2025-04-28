@@ -13,6 +13,9 @@ pub enum ContractError {
     #[error("{0}")]
     CoinsError(#[from] CoinsError),
 
+    #[error("No coins")]
+    NoCoins,
+
     #[error("Unauthorized")]
     Unauthorized(),
 
@@ -62,7 +65,7 @@ pub enum ContractError {
     #[error("Operator does not exist")]
     OperatorDoesNotExist,
 
-    #[error("Escrow already existsr")]
+    #[error("Escrow already exists")]
     EscrowAlreadyExists,
 
     #[error("Did document controller not exist")]

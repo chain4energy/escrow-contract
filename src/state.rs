@@ -1,22 +1,21 @@
 use std::collections::HashSet;
 
+use crate::error::ContractError;
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Coin, Coins, Deps, StdError, Storage, Timestamp};
+use cosmwasm_std::{Addr, Coin, Coins, Deps, StdError, Storage, Timestamp, Uint128};
 use cw_storage_plus::{Index, IndexList, IndexedMap, MultiIndex};
+use did_contract::contract::sv::Querier;
 use did_contract::{contract::DidContract, state::Controller};
 use sylvia::types::Remote;
-use did_contract::contract::sv::Querier;
-use crate::error::ContractError;
 
 #[cw_serde]
 pub struct EscrowOperator {
     pub id: String,
     pub controller: Vec<Controller>,
-    pub enabled: bool
+    pub enabled: bool,
 }
 
 impl EscrowOperator {
-
     pub fn ensure_controller(&self) -> Result<(), ContractError> {
         if self.controller.is_empty() {
             return Err(ContractError::ControllerRequired());
@@ -28,19 +27,34 @@ impl EscrowOperator {
         self.controller.contains(controller)
     }
 
-    pub fn authorize(&self, deps: Deps, did_contract: &Addr, sender: &Addr) -> Result<(), ContractError> {
+    pub fn authorize(
+        &self,
+        deps: Deps,
+        did_contract: &Addr,
+        sender: &Addr,
+    ) -> Result<(), ContractError> {
         // let did_contract = did_contract.load(deps.storage)?;
         let sender: Controller = sender.to_string().into();
-        if !Remote::<DidContract>::new(did_contract.clone()).querier(&deps.querier).is_controller_of(self.controller.clone(), sender)? {
-            return Err(ContractError::Unauthorized())
+        if !Remote::<DidContract>::new(did_contract.clone())
+            .querier(&deps.querier)
+            .is_controller_of(self.controller.clone(), sender)?
+        {
+            return Err(ContractError::Unauthorized());
         }
         Ok(())
     }
 
-    pub fn ensure_controller_exist(&self, deps: Deps, did_contract: &Addr) -> Result<(), ContractError> {
+    pub fn ensure_controller_exist(
+        &self,
+        deps: Deps,
+        did_contract: &Addr,
+    ) -> Result<(), ContractError> {
         // let did_contract = did_contract.load(deps.storage)?;
-        if !Remote::<DidContract>::new(did_contract.clone()).querier(&deps.querier).do_controllers_exist(self.controller.clone())? {
-            return Err(ContractError::ControllerDoesNotExist())
+        if !Remote::<DidContract>::new(did_contract.clone())
+            .querier(&deps.querier)
+            .do_controllers_exist(self.controller.clone())?
+        {
+            return Err(ContractError::ControllerDoesNotExist());
         }
         Ok(())
     }
@@ -76,12 +90,14 @@ pub(crate) trait EscrowController {
 
 impl EscrowController for Controller {
     fn ensure_exist(&self, deps: Deps, did_contract: &Addr) -> Result<(), ContractError> {
-        if !Remote::<DidContract>::new(did_contract.clone()).querier(&deps.querier).does_controller_exist(self.clone())? {
-            return Err(ContractError::ControllerDoesNotExist())
+        if !Remote::<DidContract>::new(did_contract.clone())
+            .querier(&deps.querier)
+            .does_controller_exist(self.clone())?
+        {
+            return Err(ContractError::ControllerDoesNotExist());
         }
         Ok(())
-    }   
-
+    }
 }
 
 // pub fn ensure_controller_exist(deps: Deps, did_contract: &Item<Addr>, controller: &Controller) -> Result<(), ContractError> {
@@ -111,7 +127,7 @@ pub struct Escrow {
 }
 
 impl Escrow {
-    pub fn ensure_state(&self, expected_state: EscrowState) -> Result<(), ContractError>{
+    pub fn ensure_state(&self, expected_state: EscrowState) -> Result<(), ContractError> {
         match (&self.state, expected_state) {
             // Match simple enum variants
             (EscrowState::Loading, EscrowState::Loading) => Ok(()),
@@ -222,7 +238,6 @@ impl<'a> Escrows for IndexedMap<&'a str, Escrow, EscrowIndexes<'a>> {
 
 pub trait Share {
     fn ensure_in_range(&self) -> Result<(), ContractError>;
-
 }
 
 // impl Share for Decimal {
@@ -237,15 +252,27 @@ pub trait Share {
 
 pub trait CoinsExt {
     fn deduplicated_coins(coins: Vec<Coin>) -> Result<Coins, StdError>;
-} 
+    fn ensure_any_coins(&self) -> Result<(), ContractError>;
+}
 
-impl CoinsExt for Coins { 
+impl CoinsExt for Coins {
     fn deduplicated_coins(coins: Vec<Coin>) -> Result<Coins, StdError> {
-        let mut consolidated = Coins::default(); // Start with an empty Coins collection
+        let mut consolidated = Coins::default();
         for coin in coins {
-            consolidated.add(coin)?; // Use the .add() method to consolidate coins
+            if coin.amount.gt(&Uint128::new(0u128)) {
+                consolidated.add(coin)?;
+            }
         }
         Ok(consolidated)
+    }
+
+    fn ensure_any_coins(&self) -> Result<(), ContractError> {
+        for coin in self {
+            if coin.amount.gt(&Uint128::new(0u128)) {
+                return Ok(());
+            }
+        }
+        return Err(ContractError::NoCoins);
     }
 }
 
