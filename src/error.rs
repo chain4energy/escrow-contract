@@ -16,6 +16,9 @@ pub enum ContractError {
     #[error("No coins")]
     NoCoins,
 
+    #[error("Coins not match: expected {0} != got {1}")]
+    CoinsMismatch(String, String),
+
     #[error("Unauthorized")]
     Unauthorized(),
 
@@ -87,8 +90,11 @@ pub enum ContractError {
         available: Uint128,
     },
 
-    #[error("Escrow wring state")]
-    EscrowWrongSate(),
+    #[error("Escrow wrong state: expected {expected}, but got {got}")]
+    EscrowWrongState {
+        expected: String,
+        got: String,
+    },
 
     #[error("Some Error")]
     SomeError, // TODO  specify error
@@ -114,6 +120,9 @@ pub enum ContractError {
 
     #[error("Admin error: {0}: {1}")]
     AdminError(String, StdError),
+
+    #[error("Load timeout error: {0}: {1}")]
+    LoadTimeoutError(String, StdError),
     // #[error("Coins Error")]
     // CoinsError(CoinsError), // TODO  specify error
 }

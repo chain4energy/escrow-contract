@@ -3,7 +3,8 @@ use crate::state::{
     escrows, CoinsExt, Escrow, EscrowController, EscrowOperator, EscrowState, Escrows, LoadedCoins,
 };
 use cosmwasm_std::{
-    Addr, AllBalanceResponse, Api, Coin, Coins, Deps, Event, Order, Response, StdError, Storage,
+    Addr, AllBalanceResponse, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order,
+    Response, StdError, Storage,
 };
 use cosmwasm_std::{BankMsg, CosmosMsg};
 use cosmwasm_std::{BankQuery, QueryRequest};
@@ -315,7 +316,7 @@ impl EscrowContract {
             lock_timestamp: None,
             create_timestamp: ctx.env.block.time,
         };
-        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
+        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
         let resp = Response::new();
         let event = Event::new("escrow_create")
             .add_attribute("escrow_id", escrow.id.as_str())
@@ -327,38 +328,30 @@ impl EscrowContract {
 
     #[sv::msg(exec)]
     pub fn load_escrow(&self, ctx: ExecCtx, escrow_id: String) -> Result<Response, ContractError> {
-        // TODO ensure valid coins
-        // TODO ensure that loaded cons are equal to expected, denom and amount
         let escrows = escrows();
-        let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
+        let mut escrow =
+            self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows, &escrow_id)?;
+        let operator = self.ensure_load_operator(ctx.deps.storage, &escrow.operator_id)?;
+        operator.ensure_enabled()?;
+
         escrow.ensure_state(EscrowState::Loading)?;
-        let timeout = self.load_timeout.load(ctx.deps.storage)?;
-        let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
-        if ctx.env.block.time.ge(&exp_timestamp) {
-            return Err(ContractError::EscrowExpired);
-        }
 
-        // TODO ensure coins equal expected coins
-
-        // ensure coins are on user account  - TODO make method
-        let balance_query = QueryRequest::Bank(BankQuery::AllBalances {
-            address: ctx.info.sender.to_string(),
-        });
-        let balance: AllBalanceResponse = ctx.deps.querier.query(&balance_query)?;
-        let balance = Coins::try_from(balance.amount)?;
-        let loaded_coins = Coins::deduplicated_coins(ctx.info.funds.clone())?;
-
-        for coin in &loaded_coins {
-            let available_amount = balance.amount_of(&coin.denom);
-
-            if available_amount < coin.amount {
-                return Err(ContractError::InsufficientFunds {
-                    denom: coin.denom.clone(),
-                    required: coin.amount,
-                    available: available_amount,
-                });
+        let timeout = self.ensure_load_load_timeout_from_storage(ctx.deps.storage)?;
+        if timeout > Duration::from_secs(0) {
+            let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
+            if ctx.env.block.time.ge(&exp_timestamp) {
+                return Err(ContractError::EscrowExpired);
             }
         }
+        EscrowContract::ensure_coins_as_expected(&ctx.info.funds, escrow.expected_coins.clone())?;
+
+        EscrowContract::ensure_coins_are_on_account(
+            &ctx.info.sender,
+            ctx.deps.querier,
+            &ctx.info.funds,
+        )?;
+
+        let loaded_coins = Coins::deduplicated_coins(ctx.info.funds.clone())?;
 
         escrow.loaded_coins = Some(LoadedCoins {
             coins: loaded_coins.to_vec(),
@@ -367,34 +360,19 @@ impl EscrowContract {
         escrow.lock_timestamp = Some(ctx.env.block.time);
         escrow.state = EscrowState::Locked;
 
-        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
-            // TODO ?????? save on success bank send bacause from doc:
-            // On error the submessage execution will revert any partial state changes due to this message,
-            // but not revert any state changes in the calling contract. If this is required,
-            // it must be done manually in the reply entry point.
-
-        // match escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-        //     Ok(_) => Ok(Response::default()),
-        //     Err(e) => Err(ContractError::EscrowOperatorError(e))
-        // }
-
-        // let msg = CosmosMsg::Bank(BankMsg::Send {
-        //     to_address: ctx.env.contract.address.to_string(),
-        //     amount: ctx.info.funds,
-        // });
-
-        // let sub_msg = SubMsg::reply_on_error(msg, LOAD_ESCROW_BANK_SEND).with_payload(payload);
+        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
+        // TODO ?????? save on success bank send bacause from doc:
+        // On error the submessage execution will revert any partial state changes due to this message,
+        // but not revert any state changes in the calling contract. If this is required,
+        // it must be done manually in the reply entry point.
 
         let resp = Response::new();
         let event = Event::new("escrow_load")
+            .add_attribute("escrow_id", escrow.id)
             .add_attribute("operator_id", escrow.operator_id)
             .add_attribute("loader", ctx.info.sender)
-            .add_attribute("escrow_id", escrow.id);
+            .add_attribute("coins", loaded_coins.to_string());
         Ok(resp.add_event(event))
-        // Ok(Response::new()
-        //     // .add_submessage(sub_msg)
-        //     // .add_message(msg)
-        //     .add_attribute("action", "send_coins"))
     }
 
     #[sv::msg(exec)] // TODO use standard api of sending fund to contract
@@ -408,7 +386,8 @@ impl EscrowContract {
         // TODO ensure valid coins
         // TODO ensure that coins match loaded coins, denoms and amounts equel or less
         let escrows = escrows();
-        let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
+        let mut escrow =
+            self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows, &escrow_id)?;
         escrow.ensure_state(EscrowState::Locked)?;
         // TODO check if timeout not passed
 
@@ -423,7 +402,7 @@ impl EscrowContract {
         if used_coins == expected {
             escrow.loader_claimed = true
         }
-        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
+        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
 
         let resp = Response::new();
         let event = Event::new("escrow_release")
@@ -548,7 +527,7 @@ impl EscrowContract {
         if escrow.receiver_claimed && escrow.loader_claimed && escrow.operator_claimed {
             escrow.state = EscrowState::Closed;
         }
-        self.save_escrow_in_storage(ctx.deps.storage, escrows, &escrow)?;
+        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
 
         Ok(resp)
     }
@@ -585,12 +564,11 @@ impl EscrowContract {
 
     #[sv::msg(query)]
     pub fn get_escrow(&self, ctx: QueryCtx, escrow_id: String) -> Result<Escrow, ContractError> {
-        let mut escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, escrows(), &escrow_id)?;
+        let mut escrow =
+            self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &escrow_id)?;
         if escrow.state == EscrowState::Loading {
             let timeout = self.load_timeout.load(ctx.deps.storage)?;
-            let exp_timestamp = escrow
-                .create_timestamp
-                .plus_seconds(timeout.as_secs());
+            let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
             if ctx.env.block.time.ge(&exp_timestamp) {
                 escrow.state = EscrowState::Unloaded;
             }
@@ -830,7 +808,7 @@ impl EscrowContract {
     fn load_escrow_from_storage(
         &self,
         storage: &dyn Storage,
-        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrows: &cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
         escrow_id: &str,
     ) -> Result<Option<Escrow>, ContractError> {
         escrows
@@ -841,7 +819,7 @@ impl EscrowContract {
     fn ensure_load_escrow_from_storage(
         &self,
         storage: &dyn Storage,
-        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrows: &cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
         escrow_id: &str,
     ) -> Result<Escrow, ContractError> {
         let escrow = self.load_escrow_from_storage(storage, escrows, escrow_id)?;
@@ -854,16 +832,75 @@ impl EscrowContract {
     fn save_escrow_in_storage(
         &self,
         storage: &mut dyn Storage,
-        escrows: cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
+        escrows: &cw_storage_plus::IndexedMap<&str, Escrow, crate::state::EscrowIndexes<'_>>,
         escrow: &Escrow,
     ) -> Result<(), ContractError> {
         escrows
             .save(storage, &escrow.id.as_str(), &escrow)
             .map_err(|e| ContractError::EscrowError("save escrow".to_string(), e))
     }
-}
 
-// const LOAD_ESCROW_BANK_SEND: u64 = 1;
+    fn ensure_load_load_timeout_from_storage(
+        &self,
+        storage: &dyn Storage,
+    ) -> Result<Duration, ContractError> {
+        self.load_timeout
+            .load(storage)
+            .map_err(|e| ContractError::LoadTimeoutError("load load timeout".to_string(), e))
+    }
+
+    fn ensure_coins_are_on_account(
+        sender: &Addr,
+        querier: cosmwasm_std::QuerierWrapper<'_>,
+        coins: &Vec<Coin>,
+    ) -> Result<(), ContractError> {
+        let loaded_coins = Coins::deduplicated_coins(coins.clone())?;
+
+        for coin in &loaded_coins {
+            let balance_query: QueryRequest<Empty> = QueryRequest::Bank(BankQuery::Balance {
+                address: sender.to_string(),
+                denom: coin.denom.clone(),
+            });
+            let balance: BalanceResponse = querier.query(&balance_query)?;
+
+            let available_amount = balance.amount.amount;
+
+            if available_amount < coin.amount {
+                return Err(ContractError::InsufficientFunds {
+                    denom: coin.denom.clone(),
+                    required: coin.amount,
+                    available: available_amount,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_coins_as_expected(
+        receiving_coins: &Vec<Coin>,
+        expected_coins: Vec<Coin>,
+    ) -> Result<(), ContractError> {
+        let receiving_coins = Coins::deduplicated_coins(receiving_coins.clone())?;
+
+        if receiving_coins.len() != expected_coins.len() {
+            return Err(ContractError::CoinsMismatch(
+                Coins::deduplicated_coins(expected_coins)?.to_string(),
+                receiving_coins.to_string(),
+            ));
+        }
+
+        if let Some(_) = expected_coins
+            .iter()
+            .find(|coin| receiving_coins.amount_of(&coin.denom) != coin.amount)
+        {
+            return Err(ContractError::CoinsMismatch(
+                Coins::deduplicated_coins(expected_coins)?.to_string(),
+                receiving_coins.to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -886,8 +923,6 @@ mod tests {
     // -------------------- Operator
 
     // -------------------- Escrow
-
-    
 
     #[test]
     fn test_load_escrow() {
@@ -1050,8 +1085,7 @@ mod tests {
 
         assert!(res.is_err(), "Expected Ok, but got Err");
 
-        let exp_err: ContractError =
-            ContractError::EscrowExpired;
+        let exp_err: ContractError = ContractError::EscrowExpired;
         assert_eq!(exp_err, res.unwrap_err());
 
         let escrow = escrow_contract

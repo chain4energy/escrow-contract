@@ -6,6 +6,7 @@ use cosmwasm_std::{Addr, Coin, Coins, Deps, StdError, Storage, Timestamp, Uint12
 use cw_storage_plus::{Index, IndexList, IndexedMap, MultiIndex};
 use did_contract::contract::sv::Querier;
 use did_contract::{contract::DidContract, state::Controller};
+use schemars::gen;
 use sylvia::types::Remote;
 
 #[cw_serde]
@@ -128,13 +129,13 @@ pub struct Escrow {
 
 impl Escrow {
     pub fn ensure_state(&self, expected_state: EscrowState) -> Result<(), ContractError> {
-        match (&self.state, expected_state) {
+        match (&self.state, expected_state.clone()) {
             // Match simple enum variants
             (EscrowState::Loading, EscrowState::Loading) => Ok(()),
             (EscrowState::Locked, EscrowState::Locked) => Ok(()),
             (EscrowState::Closed, EscrowState::Closed) => Ok(()),
             (EscrowState::Released, EscrowState::Released) => Ok(()),
-            _ => Err(ContractError::EscrowWrongSate()), // Default case, states don't match
+            _ => Err(ContractError::EscrowWrongState{expected: expected_state.state_name(), got: self.state.state_name()}), // Default case, states don't match
         }
     }
 }

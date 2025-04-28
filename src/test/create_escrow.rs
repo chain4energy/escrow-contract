@@ -719,3 +719,37 @@ fn test_create_escrow_success() {
         escrow
     )
 }
+
+#[test]
+fn test_create_escrow_operator_does_not_exist() {
+    let app = App::default();
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(vec![owner.clone()], did_contract.contract_addr.clone(), 60000)
+        .call(&owner)
+        .unwrap();
+
+    // Attempt to create an escrow with a non-existent operator
+    let receiver: Controller = "receiver1".into_addr().to_string().into();
+    let expected_coins = vec![Coin::new(1000u128, "uc4e")];
+
+    let res = escrow_contract
+        .create_escrow(
+            "escrow1".to_string(),
+            "non_existent_operator".to_string(),
+            receiver,
+            expected_coins,
+        )
+        .call(&owner);
+
+    // Verify the error
+    assert!(res.is_err(), "Expected Err, but got an Ok");
+    assert_eq!("Operator does not exist", res.err().unwrap().to_string());
+}

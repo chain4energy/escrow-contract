@@ -36,3 +36,6 @@ mod delete_operator_controller;
 
 #[cfg(test)]
 mod create_escrow;
+
+#[cfg(test)]
+mod load_escrow;
