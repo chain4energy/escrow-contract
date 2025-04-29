@@ -96,7 +96,7 @@ fn test_release_escrow_success_by_admin() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e")];
     let operator_fee = vec![Coin::new(100u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -315,9 +315,9 @@ fn test_release_escrow_success_by_operator_none_consumed() {
                 coins: expected_coins.clone(),
                 loader: loader.to_string(),
             }),
-            operator_claimed: false,
+            operator_claimed: true,
             receiver: receiver,
-            receiver_claimed: false,
+            receiver_claimed: true,
             operator_fee: operator_fee.clone(),
             // receiver_share: receiver_share,
             loader_claimed: false,
@@ -412,7 +412,7 @@ fn test_release_escrow_success_by_operator_all_consumed() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e")];
     let operator_fee = vec![Coin::new(100u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -631,7 +631,7 @@ fn test_release_escrow_success_by_operator_all_consumed_used_only() {
                 coins: expected_coins.clone(),
                 loader: loader.to_string(),
             }),
-            operator_claimed: false,
+            operator_claimed: true,
             receiver: receiver,
             receiver_claimed: false,
             operator_fee: operator_fee.clone(),
@@ -728,7 +728,7 @@ fn test_release_escrow_success_by_operator_all_consumed_fee_only() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![];
+    let used_coins = vec![Coin::new(1000u128, "uc4e")];
     let operator_fee = vec![Coin::new(1000u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -1105,7 +1105,7 @@ fn test_release_escrow_success_by_operator_partial_consumed_used_only() {
                 coins: expected_coins.clone(),
                 loader: loader.to_string(),
             }),
-            operator_claimed: false,
+            operator_claimed: true,
             receiver: receiver,
             receiver_claimed: false,
             operator_fee: operator_fee.clone(),
@@ -1202,7 +1202,7 @@ fn test_release_escrow_success_by_operator_partial_consumed_fee_only() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![];
+    let used_coins = vec![Coin::new(800u128, "uc4e")];
     let operator_fee = vec![Coin::new(800u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -1366,7 +1366,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e"), Coin::new(700u128, "mc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e"), Coin::new(1000u128, "mc4e")];
     let operator_fee = vec![Coin::new(100u128, "uc4e"), Coin::new(300u128, "mc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -1528,7 +1528,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms_only_fee_or_
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(1000u128, "uc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e"), Coin::new(1000u128, "mc4e")];
     let operator_fee = vec![Coin::new(1000u128, "mc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -1595,7 +1595,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms_only_fee_or_
             operator_fee: operator_fee.clone(),
             // receiver_share: receiver_share,
             loader_claimed: true,
-            used_coins: used_coins.clone(),
+            used_coins: vec![used_coins[1].clone(), used_coins[0].clone()],
             state: EscrowState::Released,
             lock_timestamp: Some(ts2),
             create_timestamp: ts1
@@ -2041,7 +2041,7 @@ fn test_release_escrow_success_by_disabled_operator() {
         .expect("error disabling operator");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e")];
     let operator_fee = vec![Coin::new(100u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -2118,7 +2118,7 @@ fn test_release_escrow_success_by_disabled_operator() {
 }
 
 #[test]
-fn test_release_escrow_success_by_non_existent_operator() {
+fn test_release_escrow_by_non_existent_operator() {
     let app = App::default();
     let escrow_code_id = CodeId::store_code(&app);
     let did_code_id = DidContractCodeId::store_code(&app);
@@ -2307,7 +2307,7 @@ fn test_release_escrow_success_by_admin_when_operator_not_exists() {
         .expect("error removing operator");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e")];
+    let used_coins = vec![Coin::new(1000u128, "uc4e")];
     let operator_fee = vec![Coin::new(100u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -2601,7 +2601,7 @@ fn test_release_escrow_success_by_operator_unknown_denom_used_coins() {
 
     // Release the escrow
     let used_coins = vec![Coin::new(900u128, "zc4e")];
-    let operator_fee = vec![Coin::new(100u128, "uc4e")];
+    let operator_fee = vec![];
     let res = escrow_contract
         .release_escrow(
             "escrow1".to_string(),
@@ -2612,7 +2612,7 @@ fn test_release_escrow_success_by_operator_unknown_denom_used_coins() {
 
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000uc4e, got 100uc4e,900zc4e",
+        "Coins not match: used coins are more than expected: expected 1000uc4e, got 900zc4e",
         res.err().unwrap().to_string()
     );
 }
@@ -2711,13 +2711,13 @@ fn test_release_escrow_success_by_operator_unknown_denom_fee_coins() {
 
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000uc4e, got 900uc4e,100zc4e",
+        "Coins not match: operator fee coins are more than used: expected 900uc4e, got 100zc4e",
         res.err().unwrap().to_string()
     );
 }
 
 #[test]
-fn test_release_escrow_success_by_operator_unknown_denom_too_much() {
+fn test_release_escrow_success_by_operator_known_denom_too_much() {
     let app = App::default();
     let escrow_code_id = CodeId::store_code(&app);
     let did_code_id = DidContractCodeId::store_code(&app);
@@ -2798,7 +2798,107 @@ fn test_release_escrow_success_by_operator_unknown_denom_too_much() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e")];
+    let used_coins = vec![Coin::new(1001u128, "uc4e")];
+    let operator_fee = vec![Coin::new(100u128, "uc4e")];
+    let res = escrow_contract
+        .release_escrow(
+            "escrow1".to_string(),
+            used_coins.clone(),
+            operator_fee.clone(),
+        )
+        .call(&controller_addr);
+
+    assert!(res.is_err(), "Expected Err, but got an Ok");
+    assert_eq!(
+        "Coins not match: used coins are more than expected: expected 1000uc4e, got 1001uc4e",
+        res.err().unwrap().to_string()
+    );
+}
+
+
+#[test]
+fn test_release_escrow_success_by_operator_known_denom_fee_too_much() {
+    let app = App::default();
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+    let loader = "loader".into_addr();
+
+    let loader_coin = Coin {
+        denom: "uc4e".to_string(),
+        amount: 10000u128.into(),
+    };
+    {
+        let mut app_mut = app.app_mut();
+        let a = app_mut
+            .sudo(cw_multi_test::SudoMsg::Bank(
+                cw_multi_test::BankSudo::Mint {
+                    to_address: loader.to_string(),
+                    amount: vec![loader_coin],
+                },
+            ))
+            .expect("error sudo");
+    }
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr.clone(),
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
+        .call(&owner)
+        .unwrap();
+
+    // Add an operator and create an escrow
+    let controller_addr = "controller1".into_addr();
+    let controller: Controller = controller_addr.to_string().into();
+    let operator_id = "operator1".to_string();
+    let receiver: Controller = "receiver1".into_addr().to_string().into();
+    let expected_coins = vec![Coin::new(1000u128, "uc4e")];
+
+    escrow_contract
+        .create_operator(operator_id.clone(), vec![controller.clone()])
+        .call(&owner)
+        .expect("error creating operator");
+
+    let ts1: Timestamp = Timestamp::from_seconds(12324);
+    app.set_block(BlockInfo {
+        height: 1,
+        time: ts1.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+
+    escrow_contract
+        .create_escrow(
+            "escrow1".to_string(),
+            operator_id.clone(),
+            receiver.clone(),
+            expected_coins.clone(),
+        )
+        .call(&controller_addr)
+        .expect("error creating escrow");
+
+    // Load the escrow
+    let ts2: Timestamp = Timestamp::from_seconds(12364);
+    app.set_block(BlockInfo {
+        height: 13,
+        time: ts2.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+
+    escrow_contract
+        .load_escrow("escrow1".to_string())
+        .with_funds(expected_coins.as_slice())
+        .call(&loader)
+        .expect("error loading escrow");
+
+    // Release the escrow
+    let used_coins = vec![Coin::new(100u128, "uc4e")];
     let operator_fee = vec![Coin::new(101u128, "uc4e")];
     let res = escrow_contract
         .release_escrow(
@@ -2810,7 +2910,7 @@ fn test_release_escrow_success_by_operator_unknown_denom_too_much() {
 
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000uc4e, got 1001uc4e",
+        "Coins not match: operator fee coins are more than used: expected 100uc4e, got 101uc4e",
         res.err().unwrap().to_string()
     );
 }
@@ -2901,8 +3001,8 @@ fn test_release_escrow_success_by_operator_many_denoms_too_much() {
         .expect("error loading escrow");
 
     // Release the escrow
-    let used_coins = vec![Coin::new(900u128, "uc4e"), Coin::new(700u128, "mc4e")];
-    let operator_fee = vec![Coin::new(100u128, "uc4e"), Coin::new(301u128, "mc4e")];
+    let used_coins = vec![Coin::new(900u128, "uc4e"), Coin::new(1001u128, "mc4e")];
+    let operator_fee = vec![Coin::new(100u128, "uc4e"), Coin::new(300u128, "mc4e")];
     let res = escrow_contract
         .release_escrow(
             "escrow1".to_string(),
@@ -2913,7 +3013,111 @@ fn test_release_escrow_success_by_operator_many_denoms_too_much() {
 
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000mc4e,1000uc4e, got 1001mc4e,1000uc4e",
+        "Coins not match: used coins are more than expected: expected 1000mc4e,1000uc4e, got 1001mc4e,900uc4e",
+        res.err().unwrap().to_string()
+    );
+}
+
+
+#[test]
+fn test_release_escrow_success_by_operator_many_denoms_fee_too_much() {
+    let app = App::default();
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+    let loader = "loader".into_addr();
+
+    let loader_coin = Coin {
+        denom: "uc4e".to_string(),
+        amount: 10000u128.into(),
+    };
+    let loader_coin2 = Coin {
+        denom: "mc4e".to_string(),
+        amount: 10000u128.into(),
+    };
+    {
+        let mut app_mut = app.app_mut();
+        let a = app_mut
+            .sudo(cw_multi_test::SudoMsg::Bank(
+                cw_multi_test::BankSudo::Mint {
+                    to_address: loader.to_string(),
+                    amount: vec![loader_coin, loader_coin2],
+                },
+            ))
+            .expect("error sudo");
+    }
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr.clone(),
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
+        .call(&owner)
+        .unwrap();
+
+    // Add an operator and create an escrow
+    let controller_addr = "controller1".into_addr();
+    let controller: Controller = controller_addr.to_string().into();
+    let operator_id = "operator1".to_string();
+    let receiver: Controller = "receiver1".into_addr().to_string().into();
+    let expected_coins = vec![Coin::new(1000u128, "uc4e"), Coin::new(1000u128, "mc4e")];
+
+    escrow_contract
+        .create_operator(operator_id.clone(), vec![controller.clone()])
+        .call(&owner)
+        .expect("error creating operator");
+
+    let ts1: Timestamp = Timestamp::from_seconds(12324);
+    app.set_block(BlockInfo {
+        height: 1,
+        time: ts1.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+
+    escrow_contract
+        .create_escrow(
+            "escrow1".to_string(),
+            operator_id.clone(),
+            receiver.clone(),
+            expected_coins.clone(),
+        )
+        .call(&controller_addr)
+        .expect("error creating escrow");
+
+    // Load the escrow
+    let ts2: Timestamp = Timestamp::from_seconds(12364);
+    app.set_block(BlockInfo {
+        height: 13,
+        time: ts2.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+
+    escrow_contract
+        .load_escrow("escrow1".to_string())
+        .with_funds(expected_coins.as_slice())
+        .call(&loader)
+        .expect("error loading escrow");
+
+    // Release the escrow
+    let used_coins = vec![Coin::new(900u128, "uc4e"), Coin::new(1000u128, "mc4e")];
+    let operator_fee = vec![Coin::new(901u128, "uc4e"), Coin::new(300u128, "mc4e")];
+    let res = escrow_contract
+        .release_escrow(
+            "escrow1".to_string(),
+            used_coins.clone(),
+            operator_fee.clone(),
+        )
+        .call(&controller_addr);
+
+    assert!(res.is_err(), "Expected Err, but got an Ok");
+    assert_eq!(
+        "Coins not match: operator fee coins are more than used: expected 1000mc4e,900uc4e, got 300mc4e,901uc4e",
         res.err().unwrap().to_string()
     );
 }

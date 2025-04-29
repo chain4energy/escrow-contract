@@ -48,3 +48,12 @@ mod set_release_timeout;
 
 #[cfg(test)]
 mod release_escrow;
+
+#[cfg(test)]
+mod loader_withdraw_escrow;
+
+#[cfg(test)]
+mod receiver_withdraw_escrow;
+
+#[cfg(test)]
+mod operator_withdraw_escrow;

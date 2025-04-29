@@ -4,7 +4,7 @@ use crate::state::{
 };
 use cosmwasm_std::{
     Addr, AllBalanceResponse, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order,
-    Response, StdError, Storage, Timestamp,
+    Response, StdError, Storage, Timestamp, Uint128,
 };
 use cosmwasm_std::{BankMsg, CosmosMsg};
 use cosmwasm_std::{BankQuery, QueryRequest};
@@ -446,15 +446,43 @@ impl EscrowContract {
 
         let operator_fee = Coins::deduplicated_coins(operator_fee)?;
 
-        let all = EscrowContract::ensure_correct_coins_amount_on_release(&used_coins, &operator_fee, escrow.expected_coins.clone())?;
+        EscrowContract::ensure_correct_coins_amount_on_release(
+            &used_coins,
+            &operator_fee,
+            escrow.expected_coins.clone(),
+        )?;
 
         escrow.used_coins = used_coins.to_vec();
         escrow.state = EscrowState::Released;
         escrow.operator_fee = operator_fee.to_vec();
         let expected = Coins::try_from(escrow.expected_coins.clone())?;
-        if all == expected {
+        if used_coins == expected {
             escrow.loader_claimed = true
         }
+        let mut uc_empty = true;
+        if !used_coins.is_empty() {
+            for c in &used_coins {
+                if c.amount.gt(&Uint128::zero()) {
+                    uc_empty = false;
+                }
+            }
+        }
+        if uc_empty {
+            escrow.receiver_claimed = true;
+        }
+
+        let mut of_empty = true;
+        if !operator_fee.is_empty() {
+            for c in &operator_fee {
+                if c.amount.gt(&Uint128::zero()) {
+                    of_empty = false;
+                }
+            }
+        }
+        if of_empty {
+            escrow.operator_claimed = true;
+        }
+
         self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
 
         let resp = Response::new();
@@ -467,18 +495,52 @@ impl EscrowContract {
         // Ok(Response::new())
     }
 
+    fn is_loader(&self, deps: Deps, escrow: &Escrow, sender: &Addr) -> Result<bool, ContractError> {
+        if let Some(l) = &escrow.loaded_coins {
+            if l.loader == sender.to_string() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn is_loader_or_admin(
+        &self,
+        deps: Deps,
+        escrow: &Escrow,
+        sender: &Addr,
+    ) -> Result<bool, ContractError> {
+        if self.is_loader(deps, escrow, sender)? || self.is_admin(deps, sender)? {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     #[sv::msg(exec)]
     pub fn withdraw(&self, ctx: ExecCtx, escrow_id: String) -> Result<Response, ContractError> {
         let escrows = escrows();
-        let mut escrow = escrows.load(ctx.deps.storage, &escrow_id)?;
+        let mut escrow =
+            self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows, &escrow_id)?;
         escrow.ensure_state(EscrowState::Released)?;
 
+        if escrow.loader_claimed && escrow.receiver_claimed && escrow.operator_claimed {
+            return Err(ContractError::EscowAlreadyWithdrawn);
+        }
+
+        let mut loader_authorized = false;
+        let mut receiver_authorized = false;
+        let mut operator_authorized = false;
+
+        let mut loader_claimed = false;
+        let mut receiver_claimed = false;
+        let mut operator_claimed = false;
+
         let mut resp = Response::default();
-        if !escrow.loader_claimed {
-            println!("Withdrawing loader check");
-            if let Some(l) = &escrow.loaded_coins {
-                if l.loader == ctx.info.sender.to_string() {
-                    // TODO or admin
+        if let Some(l) = &escrow.loaded_coins {
+            if self.is_loader_or_admin(ctx.deps.as_ref(), &escrow, &ctx.info.sender)? {
+                loader_authorized = true;
+                if !escrow.loader_claimed {
+                    println!("Withdrawing loader check");
                     println!("Withdrawing - is loader");
                     let mut ec: Coins = Coins::try_from(escrow.expected_coins.clone())?;
                     for c in &escrow.used_coins {
@@ -487,93 +549,92 @@ impl EscrowContract {
 
                     let msg = CosmosMsg::Bank(BankMsg::Send {
                         to_address: l.loader.to_string(),
-                        amount: ec.into_vec(),
+                        amount: ec.to_vec(),
                     });
                     resp = resp.add_message(msg);
                     let event = Event::new("escrow_withdraw_loader")
-                        .add_attribute("escrow_id", escrow.id.as_str());
+                        .add_attribute("escrow_id", escrow.id.as_str())
+                        .add_attribute("amount", ec.to_string());
                     resp = resp.add_event(event);
                     escrow.loader_claimed = true;
+                    loader_claimed = true;
                 }
             }
         }
 
-        if !escrow.receiver_claimed || !escrow.operator_claimed {
-            println!("Withdrawing - receiver or operator");
-            let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
-            let sender: Controller = ctx.info.sender.to_string().into();
+        // if !escrow.receiver_claimed || !escrow.operator_claimed {
+        //     println!("Withdrawing - receiver or operator");
+        //     let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
+        //     let sender: Controller = ctx.info.sender.to_string().into();
+        let did_contract = self.load_did_contract_address(ctx.deps.storage)?;
+        let sender: Controller = ctx.info.sender.to_string().into();
 
-            // let receiver_share = escrow.receiver_share;
-
-            // let mut receiver_coins: Vec<Coin> = Vec::new();
-            // for c in &escrow.used_coins {
-            //     let used =  Decimal::try_from(c.amount);
-            //     if let Err(e) = used {
-            //         return Err(ContractError::SomeError); // TODO specific error
-            //     }
-            //     let receiver_amount = escrow.used_coins   receiver_share.checked_mul(used.unwrap()); // Calculate share for each coin
-            //     if let Err(e) = receiver_amount {
-            //         return Err(ContractError::SomeError); // TODO specific error
-            //     }
-            //     let receiver_amount = receiver_amount.unwrap();
-            //     println!("receiver amount: {receiver_amount}");
-            //     receiver_coins.push(Coin {
-            //         denom: c.denom.clone(),
-            //         amount: receiver_amount.to_uint_ceil(), // This will be the receiver's portion of this coin
-            //     });
-            // }
-
+        if Remote::<DidContract>::new(did_contract.clone())
+            .querier(&ctx.deps.querier)
+            .is_controller_of(vec![escrow.receiver.clone()], sender.clone())?
+        {
+            receiver_authorized = true;
             if !escrow.receiver_claimed {
-                if Remote::<DidContract>::new(did_contract.clone())
-                    .querier(&ctx.deps.querier)
-                    .is_controller_of(vec![escrow.receiver.clone()], sender.clone())?
-                {
-                    println!("Withdrawing - is receiver");
-                    let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
-                    for c in escrow.operator_fee.clone() {
-                        uc.sub(c)?;
-                    }
-
-                    let msg = CosmosMsg::Bank(BankMsg::Send {
-                        to_address: ctx.info.sender.to_string(),
-                        amount: uc.to_vec(),
-                    });
-                    println!("Withdrawing - receiver {}", uc.into_vec()[0].amount);
-                    resp = resp.add_message(msg);
-                    let event = Event::new("escrow_withdraw_receiver")
-                        .add_attribute("escrow_id", escrow.id.as_str());
-                    resp = resp.add_event(event);
-                    escrow.receiver_claimed = true;
+                
+                println!("Withdrawing - is receiver");
+                let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
+                for c in escrow.operator_fee.clone() {
+                    uc.sub(c)?;
                 }
-            }
 
+                let msg = CosmosMsg::Bank(BankMsg::Send {
+                    to_address: ctx.info.sender.to_string(),
+                    amount: uc.to_vec(),
+                });
+                println!("Withdrawing - receiver {}", uc.to_vec()[0].amount);
+                resp = resp.add_message(msg);
+                let event = Event::new("escrow_withdraw_receiver")
+                    .add_attribute("escrow_id", escrow.id.as_str())
+                    .add_attribute("amount", uc.to_string());
+                resp = resp.add_event(event);
+                escrow.receiver_claimed = true;
+                receiver_claimed = true;
+            }
+        }
+
+        let operator = self
+            .operators
+            .load(ctx.deps.storage, escrow.operator_id.clone())?;
+
+        if Remote::<DidContract>::new(did_contract.clone())
+            .querier(&ctx.deps.querier)
+            .is_controller_of(operator.controller, sender)?
+        {
+            operator_authorized = true;
             if !escrow.operator_claimed {
-                let operator = self
-                    .operators
-                    .load(ctx.deps.storage, escrow.operator_id.clone())?;
                 let uc: Coins = Coins::try_from(escrow.operator_fee.clone())?;
                 // for c in receiver_coins {
                 //     uc.sub(c)?;
                 // }
 
-                if Remote::<DidContract>::new(did_contract.clone())
-                    .querier(&ctx.deps.querier)
-                    .is_controller_of(operator.controller, sender)?
-                {
-                    println!("Withdrawing - is operator");
-                    let msg = CosmosMsg::Bank(BankMsg::Send {
-                        to_address: ctx.info.sender.to_string(),
-                        amount: uc.to_vec(),
-                    });
-                    println!("Withdrawing - operator {}", uc.into_vec()[0].amount);
+                println!("Withdrawing - is operator");
+                let msg = CosmosMsg::Bank(BankMsg::Send {
+                    to_address: ctx.info.sender.to_string(),
+                    amount: uc.to_vec(),
+                });
+                println!("Withdrawing - operator {}", uc.to_vec()[0].amount);
 
-                    resp = resp.add_message(msg);
-                    let event = Event::new("escrow_withdraw_operator")
-                        .add_attribute("escrow_id", escrow.id.as_str());
-                    resp = resp.add_event(event);
-                    escrow.operator_claimed = true;
-                }
+                resp = resp.add_message(msg);
+                let event = Event::new("escrow_withdraw_operator")
+                    .add_attribute("escrow_id", escrow.id.as_str())
+                    .add_attribute("amount", uc.to_string());
+                resp = resp.add_event(event);
+                escrow.operator_claimed = true;
+                operator_claimed = true;
             }
+        }
+        // }
+
+        if !loader_authorized && !receiver_authorized && !operator_authorized {
+            return Err(ContractError::Unauthorized());
+        }
+        if !loader_claimed && !receiver_claimed && !operator_claimed {
+            return Err(ContractError::EscowAlreadyWithdrawn);
         }
 
         // escrow.used_coins = used_coins;
@@ -615,27 +676,37 @@ impl EscrowContract {
         self.ensure_load_operator(ctx.deps.storage, &operator_id)
     }
 
-    fn is_loading_timeout(&self, store: &dyn Storage, now: &Timestamp, escrow: &Escrow) -> Result<bool, ContractError> {
+    fn is_loading_timeout(
+        &self,
+        store: &dyn Storage,
+        now: &Timestamp,
+        escrow: &Escrow,
+    ) -> Result<bool, ContractError> {
         let timeout = self.ensure_load_load_timeout_from_storage(store)?;
         if timeout > Duration::from_secs(0) {
             let exp_timestamp = escrow.create_timestamp.plus_seconds(timeout.as_secs());
             if now.ge(&exp_timestamp) {
-               return Ok(true);
+                return Ok(true);
             }
         }
         Ok(false)
     }
 
-    fn is_release_timeout(&self, store: &dyn Storage, now: &Timestamp, escrow: &Escrow) -> Result<bool, ContractError> {
+    fn is_release_timeout(
+        &self,
+        store: &dyn Storage,
+        now: &Timestamp,
+        escrow: &Escrow,
+    ) -> Result<bool, ContractError> {
         let timeout = self.ensure_load_release_timeout_from_storage(store)?;
-            if timeout > Duration::from_secs(0) {
-                if let Some(lt) = escrow.lock_timestamp {
-                    let exp_timestamp = lt.plus_seconds(timeout.as_secs());
-                    if now.ge(&exp_timestamp) {
-                        return Ok(true);
-                    }
+        if timeout > Duration::from_secs(0) {
+            if let Some(lt) = escrow.lock_timestamp {
+                let exp_timestamp = lt.plus_seconds(timeout.as_secs());
+                if now.ge(&exp_timestamp) {
+                    return Ok(true);
                 }
             }
+        }
         Ok(false)
     }
 
@@ -709,17 +780,15 @@ impl EscrowContract {
     }
 
     fn is_admin(&self, deps: Deps, sender: &Addr) -> Result<bool, ContractError> {
-        let admins = self.admins.may_load(deps.storage); // TODO handle error
-        match admins {
-            Ok(admins) => {
-                if let Some(admin_list) = admins {
-                    // Check if the sender is one of the admins
-                    Ok(admin_list.contains(sender))
-                } else {
-                    Ok(false)
-                }
-            }
-            Err(e) => Err(ContractError::AdminError("load admin".to_string(), e)),
+        let admins = self
+            .admins
+            .may_load(deps.storage)
+            .map_err(|e| ContractError::AdminError("load admin".to_string(), e))?;
+        if let Some(admin_list) = admins {
+            // Check if the sender is one of the admins
+            Ok(admin_list.contains(sender))
+        } else {
+            Ok(false)
         }
     }
 
@@ -978,20 +1047,22 @@ impl EscrowContract {
         let receiving_coins = Coins::deduplicated_coins(receiving_coins.clone())?;
 
         if receiving_coins.len() != expected_coins.len() {
-            return Err(ContractError::CoinsMismatch(
-                Coins::deduplicated_coins(expected_coins)?.to_string(),
-                receiving_coins.to_string(),
-            ));
+            return Err(ContractError::CoinsMismatch {
+                info: "receiving coins are more than expected".to_string(),
+                expected: Coins::deduplicated_coins(expected_coins)?.to_string(),
+                got: receiving_coins.to_string(),
+            });
         }
 
         if let Some(_) = expected_coins
             .iter()
             .find(|coin| receiving_coins.amount_of(&coin.denom) != coin.amount)
         {
-            return Err(ContractError::CoinsMismatch(
-                Coins::deduplicated_coins(expected_coins)?.to_string(),
-                receiving_coins.to_string(),
-            ));
+            return Err(ContractError::CoinsMismatch {
+                info: "receiving coins are more than expected".to_string(),
+                expected: Coins::deduplicated_coins(expected_coins)?.to_string(),
+                got: receiving_coins.to_string(),
+            });
         }
         Ok(())
     }
@@ -1000,29 +1071,46 @@ impl EscrowContract {
         used: &Coins,
         operator_fee: &Coins,
         expected_coins: Vec<Coin>,
-    ) -> Result<Coins, ContractError> {
-        let mut all = operator_fee.clone();
-        for c in used.iter() {
-            all.add(c.clone())?;
-        }
-        let expected_coins = Coins::deduplicated_coins(expected_coins)?;
-        if all.len() > expected_coins.len() {
-            return Err(ContractError::CoinsMismatch(
-                expected_coins.to_string(),
-                all.to_string(),
-            ));
+    ) -> Result<(), ContractError> {
+        if operator_fee.len() > used.len() {
+            return Err(ContractError::CoinsMismatch {
+                info: "operator fee coins are more than used".to_string(),
+                expected: used.to_string(),
+                got: operator_fee.to_string(),
+            });
         }
 
-        if let Some(_) = all
+        if let Some(_) = operator_fee
+            .iter()
+            .find(|coin| used.amount_of(&coin.denom) < coin.amount)
+        {
+            return Err(ContractError::CoinsMismatch {
+                info: "operator fee coins are more than used".to_string(),
+                expected: used.to_string(),
+                got: operator_fee.to_string(),
+            });
+        }
+
+        let expected_coins = Coins::deduplicated_coins(expected_coins)?;
+        if used.len() > expected_coins.len() {
+            return Err(ContractError::CoinsMismatch {
+                info: "used coins are more than expected".to_string(),
+                expected: expected_coins.to_string(),
+                got: used.to_string(),
+            });
+        }
+
+        if let Some(_) = used
             .iter()
             .find(|coin| expected_coins.amount_of(&coin.denom) < coin.amount)
         {
-            return Err(ContractError::CoinsMismatch(
-                expected_coins.to_string(),
-                all.to_string(),
-            ));
+            return Err(ContractError::CoinsMismatch {
+                info: "used coins are more than expected".to_string(),
+                expected: expected_coins.to_string(),
+                got: used.to_string(),
+            });
         }
-        Ok(all)
+        Ok(())
     }
 }
 
@@ -1047,9 +1135,6 @@ mod tests {
     // -------------------- Operator
 
     // -------------------- Escrow
-
-   
-
 
     #[test]
     fn test_withdraw() {
@@ -1516,8 +1601,6 @@ mod tests {
         assert!(escrows.is_ok(), "Expected Ok, but got an Err");
         assert_eq!(0, escrows.unwrap().len())
     }
-
-    
 
     #[test]
     fn get_escrow_by_operator_index() {

@@ -16,8 +16,12 @@ pub enum ContractError {
     #[error("No coins")]
     NoCoins,
 
-    #[error("Coins not match: expected {0}, got {1}")]
-    CoinsMismatch(String, String),
+    #[error("Coins not match: {info}: expected {expected}, got {got}")]
+    CoinsMismatch{
+        info: String,
+        expected: String,
+        got: String,
+    },
 
     #[error("Unauthorized")]
     Unauthorized(),
@@ -117,6 +121,8 @@ pub enum ContractError {
     #[error("Escrow operator enabled: {0}")]
     EscowOperatorEnabled(String),
 
+    #[error("Escrow already withdrawn")]
+    EscowAlreadyWithdrawn,
 
     #[error("Admin error: {0}: {1}")]
     AdminError(String, StdError),
