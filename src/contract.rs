@@ -3,7 +3,7 @@ use crate::state::{
     escrows, CoinsExt, Escrow, EscrowController, EscrowOperator, EscrowState, Escrows, LoadedCoins,
 };
 use cosmwasm_std::{
-    Addr, AllBalanceResponse, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order,
+    Addr, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order,
     Response, StdError, Storage, Timestamp, Uint128,
 };
 use cosmwasm_std::{BankMsg, CosmosMsg};
@@ -495,7 +495,7 @@ impl EscrowContract {
         // Ok(Response::new())
     }
 
-    fn is_loader(&self, deps: Deps, escrow: &Escrow, sender: &Addr) -> Result<bool, ContractError> {
+    fn is_loader(&self, escrow: &Escrow, sender: &Addr) -> Result<bool, ContractError> {
         if let Some(l) = &escrow.loaded_coins {
             if l.loader == sender.to_string() {
                 return Ok(true);
@@ -510,7 +510,7 @@ impl EscrowContract {
         escrow: &Escrow,
         sender: &Addr,
     ) -> Result<bool, ContractError> {
-        if self.is_loader(deps, escrow, sender)? || self.is_admin(deps, sender)? {
+        if self.is_loader(escrow, sender)? || self.is_admin(deps, sender)? {
             return Ok(true);
         }
         Ok(false)
@@ -521,11 +521,39 @@ impl EscrowContract {
         let escrows = escrows();
         let mut escrow =
             self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows, &escrow_id)?;
-        escrow.ensure_state(EscrowState::Released)?;
-
-        if escrow.loader_claimed && escrow.receiver_claimed && escrow.operator_claimed {
+        if escrow.state == EscrowState::Closed {
             return Err(ContractError::EscowAlreadyWithdrawn);
         }
+
+        if escrow.state == EscrowState::Locked && self.is_release_timeout(ctx.deps.storage, &ctx.env.block.time, &escrow)?{
+            if let Some(l) = &escrow.loaded_coins {
+                if self.is_loader_or_admin(ctx.deps.as_ref(), &escrow, &ctx.info.sender)? {    
+                        let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+                            to_address: l.loader.to_string(),
+                            amount: l.coins.clone(),
+                        });
+                        let mut resp: Response = Response::default();
+
+                        let l_coins = Coins::try_from(l.coins.clone())?;
+
+                        resp = resp.add_message(msg);
+                        let event = Event::new("escrow_recover_loader")
+                            .add_attribute("escrow_id", escrow.id.as_str())
+                            .add_attribute("amount", l_coins.to_string());
+                        resp = resp.add_event(event);
+
+                        escrow.state = EscrowState::FailedReleaseTimeoutWithdrawned;
+                        
+                        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
+                        return Ok(resp);
+                } else {
+                    return Err(ContractError::Unauthorized());
+                }
+            }
+            return Err(ContractError::ContractEscrowError("no loaded_coins in locked state".to_string()));
+        
+        }
+        escrow.ensure_state(EscrowState::Released)?;
 
         let mut loader_authorized = false;
         let mut receiver_authorized = false;
@@ -575,7 +603,6 @@ impl EscrowContract {
         {
             receiver_authorized = true;
             if !escrow.receiver_claimed {
-                
                 println!("Withdrawing - is receiver");
                 let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
                 for c in escrow.operator_fee.clone() {
@@ -1117,18 +1144,15 @@ impl EscrowContract {
 #[cfg(test)]
 mod tests {
 
-    use cosmwasm_std::{Coin, Decimal, StdError};
+    use cosmwasm_std::Coin;
     use cw_multi_test::IntoAddr;
     use sylvia::multitest::App;
 
-    use crate::error::ContractError;
-    use crate::state::LoadedCoins;
     use crate::{
         contract::sv::mt::{CodeId, EscrowContractProxy},
         state::{Escrow, EscrowState},
     };
     use did_contract::contract::{sv::mt::CodeId as DidContractCodeId, DidContract};
-    use did_contract::state::Controller;
 
     // -------------------- Admin tests
 
@@ -1136,384 +1160,7 @@ mod tests {
 
     // -------------------- Escrow
 
-    #[test]
-    fn test_withdraw() {
-        let app: App<cw_multi_test::App> = App::default();
-
-        let loader = "loader".into_addr();
-        let loader_coin = Coin {
-            denom: "uatom".to_string(),
-            amount: 10000u128.into(),
-        };
-        {
-            let mut app_mut = app.app_mut();
-            let a = app_mut
-                .sudo(cw_multi_test::SudoMsg::Bank(
-                    cw_multi_test::BankSudo::Mint {
-                        to_address: loader.to_string(),
-                        amount: vec![loader_coin],
-                    },
-                ))
-                .expect("error sudo");
-        }
-        let escrow_code_id = CodeId::store_code(&app);
-        let did_code_id = DidContractCodeId::store_code(&app);
-
-        let owner = "owner".into_addr();
-        let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
-            did_code_id.instantiate().call(&owner).unwrap();
-        let escrow_contract = escrow_code_id
-            .instantiate(
-                vec![owner.clone()],
-                did_contract.contract_addr,
-                60000,
-                5 * 24 * 3600 * 1000,
-            )
-            .call(&owner)
-            .unwrap();
-
-        let op_controller_addr = "operatr_controller".into_addr();
-
-        let op_controller: Controller = op_controller_addr.to_string().into();
-
-        let res = escrow_contract
-            .create_operator("operator1".to_string(), vec![op_controller.clone()])
-            .call(&owner)
-            .expect("error creating operator");
-
-        let receiver_addr = "controller1".into_addr();
-        let receiver: Controller = receiver_addr.to_string().into();
-        let coin = Coin {
-            denom: "uatom".to_string(),
-            amount: 1000u128.into(),
-        };
-
-        let expected_coins = vec![coin.clone()];
-        escrow_contract
-            .create_escrow(
-                "escrow1".to_string(),
-                "operator1".to_string(),
-                receiver.clone(),
-                expected_coins.clone(),
-                // Decimal::percent(50),
-            )
-            .call(&op_controller_addr)
-            .expect("error creating escrow");
-
-        // Attempt to load
-        let res = escrow_contract
-            .load_escrow("escrow1".to_string())
-            .with_funds(vec![coin.clone()].as_slice())
-            .call(&loader)
-            .expect("load_escrow error");
-
-        let contract_coin = app
-            .querier()
-            .query_balance(&escrow_contract.contract_addr, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(coin, contract_coin);
-
-        // Attempt to release coins
-        let rel_coin = Coin {
-            denom: "uatom".to_string(),
-            amount: 500u128.into(),
-        };
-
-        let operator_fee = Coin {
-            denom: "uatom".to_string(),
-            amount: 250u128.into(),
-        };
-
-        let res = escrow_contract
-            .release_escrow(
-                "escrow1".to_string(),
-                vec![rel_coin.clone()],
-                vec![operator_fee.clone()],
-            )
-            .call(&op_controller_addr)
-            .expect("load_escrow error");
-
-        let contract_coin = app
-            .querier()
-            .query_balance(&escrow_contract.contract_addr, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(coin, contract_coin);
-        let contract_coin = app
-            .querier()
-            .query_balance(&loader, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 9000u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(receiver.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(op_controller.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-
-        // ---- Withdraw loader --
-
-        let res = escrow_contract
-            .withdraw("escrow1".to_string())
-            .call(&loader)
-            .expect("withdraw loader error");
-
-        let contract_coin = app
-            .querier()
-            .query_balance(&escrow_contract.contract_addr, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 500u128.into()
-            },
-            contract_coin
-        );
-        let contract_coin = app
-            .querier()
-            .query_balance(&loader, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 9500u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(receiver.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(op_controller.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-
-        let escrow = escrow_contract
-            .get_escrow("escrow1".to_string())
-            .expect("getting escrow error");
-        assert_eq!(
-            Escrow {
-                id: "escrow1".to_string(),
-                operator_id: "operator1".to_string(),
-                expected_coins: expected_coins.clone(),
-                loaded_coins: Some(LoadedCoins {
-                    loader: loader.to_string(),
-                    coins: expected_coins.clone()
-                }),
-                operator_claimed: false,
-                receiver: receiver.clone(),
-                receiver_claimed: false,
-                operator_fee: vec![operator_fee.clone()],
-                // receiver_share: Decimal::percent(50),
-                loader_claimed: true,
-                used_coins: vec![rel_coin.clone()],
-                state: EscrowState::Released,
-                lock_timestamp: escrow.lock_timestamp,
-                create_timestamp: escrow.create_timestamp,
-            },
-            escrow
-        );
-
-        // ---- Withdraw oparator --
-
-        let res = escrow_contract
-            .withdraw("escrow1".to_string())
-            .call(&op_controller_addr)
-            .expect("withdraw loader error");
-
-        let contract_coin = app
-            .querier()
-            .query_balance(&escrow_contract.contract_addr, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 250u128.into()
-            },
-            contract_coin
-        );
-        let contract_coin = app
-            .querier()
-            .query_balance(&loader, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 9500u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(receiver.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(op_controller.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 250u128.into()
-            },
-            contract_coin
-        );
-
-        let escrow = escrow_contract
-            .get_escrow("escrow1".to_string())
-            .expect("getting escrow error");
-        assert_eq!(
-            Escrow {
-                id: "escrow1".to_string(),
-                operator_id: "operator1".to_string(),
-                expected_coins: expected_coins.clone(),
-                loaded_coins: Some(LoadedCoins {
-                    loader: loader.to_string(),
-                    coins: expected_coins.clone()
-                }),
-                operator_claimed: true,
-                receiver: receiver.clone(),
-                receiver_claimed: false,
-                operator_fee: vec![operator_fee.clone()],
-                // receiver_share: Decimal::percent(50),
-                loader_claimed: true,
-                used_coins: vec![rel_coin.clone()],
-                state: EscrowState::Released,
-                lock_timestamp: escrow.lock_timestamp,
-                create_timestamp: escrow.create_timestamp
-            },
-            escrow
-        );
-
-        // ---- Withdraw receiver --
-
-        let res = escrow_contract
-            .withdraw("escrow1".to_string())
-            .call(&receiver_addr)
-            .expect("withdraw loader error");
-
-        let contract_coin = app
-            .querier()
-            .query_balance(&escrow_contract.contract_addr, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 0u128.into()
-            },
-            contract_coin
-        );
-        let contract_coin = app
-            .querier()
-            .query_balance(&loader, &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 9500u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(receiver.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 250u128.into()
-            },
-            contract_coin
-        );
-
-        let contract_coin = app
-            .querier()
-            .query_balance(op_controller.to_string(), &coin.denom)
-            .expect("error taking cntract coins");
-        assert_eq!(
-            Coin {
-                denom: "uatom".to_string(),
-                amount: 250u128.into()
-            },
-            contract_coin
-        );
-
-        let escrow = escrow_contract
-            .get_escrow("escrow1".to_string())
-            .expect("getting escrow error");
-        assert_eq!(
-            Escrow {
-                id: "escrow1".to_string(),
-                operator_id: "operator1".to_string(),
-                expected_coins: expected_coins.clone(),
-                loaded_coins: Some(LoadedCoins {
-                    loader: loader.to_string(),
-                    coins: expected_coins.clone()
-                }),
-                operator_claimed: true,
-                receiver: receiver.clone(),
-                receiver_claimed: true,
-                operator_fee: vec![operator_fee],
-                // receiver_share: Decimal::percent(50),
-                loader_claimed: true,
-                used_coins: vec![rel_coin.clone()],
-                state: EscrowState::Closed,
-                lock_timestamp: escrow.lock_timestamp,
-                create_timestamp: escrow.create_timestamp
-            },
-            escrow
-        );
-    }
+    
 
     #[test]
     fn get_operator_not_found() {

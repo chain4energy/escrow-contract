@@ -1,5 +1,3 @@
-use core::time;
-
 use cosmwasm_std::{BlockInfo, Coin, Coins, Timestamp};
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
@@ -34,7 +32,7 @@ fn test_load_escrow_success() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -182,7 +180,7 @@ fn test_load_escrow_success_many_denoms() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -360,7 +358,7 @@ fn test_load_escrow_operator_does_not_exist() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -447,7 +445,7 @@ fn test_load_escrow_invalid_state() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -666,7 +664,6 @@ fn test_load_escrow_timeout_exceeded() {
         .expect("error creating escrow");
 
     // Simulate time passing beyond the loading timeout
-    let ts2: Timestamp = Timestamp::from_seconds(12400); // Exceeds the timeout
 
     let ts2 = ts1.plus_seconds(60);
     app.set_block(BlockInfo {
@@ -761,7 +758,7 @@ fn test_load_escrow_insufficient_funds() {
     // Verify the error
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000uc4e, got 999uc4e",
+        "Coins not match: receiving coins are more than expected: expected 1000uc4e, got 999uc4e",
         res.err().unwrap().to_string()
     );
 }
@@ -840,7 +837,7 @@ fn test_load_escrow_wrong_denom_funds() {
     // Verify the error
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 1000uc4e, got 10000mc4e",
+        "Coins not match: receiving coins are more than expected: expected 1000uc4e, got 10000mc4e",
         res.err().unwrap().to_string()
     );
 }
@@ -917,7 +914,7 @@ fn test_load_escrow_wrong_many_denomoms_funds() {
     // Verify the error
     assert!(res.is_err(), "Expected Err, but got an Ok");
     assert_eq!(
-        "Coins not match: expected 10000mc4e,1000uc4e, got 10000nc4e,1000uc4e",
+        "Coins not match: receiving coins are more than expected: expected 10000mc4e,1000uc4e, got 10000nc4e,1000uc4e",
         res.err().unwrap().to_string()
     );
 }
@@ -933,7 +930,7 @@ fn test_load_escrow() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -962,7 +959,7 @@ fn test_load_escrow() {
 
     let op_controller: Controller = op_controller_addr.to_string().into();
 
-    let res = escrow_contract
+    escrow_contract
         .create_operator("operator1".to_string(), vec![op_controller.clone()])
         .call(&owner)
         .expect("error creating operator");
@@ -985,11 +982,10 @@ fn test_load_escrow() {
         .call(&op_controller_addr)
         .expect("error creating escrow");
 
-    // Attempt to load with insufficient funds
-    let res = escrow_contract
+    escrow_contract
         .load_escrow("escrow1".to_string())
-        .with_funds(vec![coin.clone()].as_slice()) // Insufficient funds
-        .call(&loader);
+        .with_funds(vec![coin.clone()].as_slice()) 
+        .call(&loader).expect("error loading escrow");
 
     let escrow = escrow_contract
         .get_escrow("escrow1".to_string())
@@ -1037,7 +1033,7 @@ fn test_load_escrow_expired() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1066,7 +1062,7 @@ fn test_load_escrow_expired() {
 
     let op_controller: Controller = op_controller_addr.to_string().into();
 
-    let res = escrow_contract
+    escrow_contract
         .create_operator("operator1".to_string(), vec![op_controller.clone()])
         .call(&owner)
         .expect("error creating operator");

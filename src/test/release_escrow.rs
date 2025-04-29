@@ -1,5 +1,3 @@
-use core::time;
-
 use cosmwasm_std::{BlockInfo, Coin, Coins, Timestamp};
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
@@ -29,7 +27,7 @@ fn test_release_escrow_success_by_admin() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -187,7 +185,7 @@ fn test_release_escrow_success_by_operator_none_consumed() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -345,7 +343,7 @@ fn test_release_escrow_success_by_operator_all_consumed() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -503,7 +501,7 @@ fn test_release_escrow_success_by_operator_all_consumed_used_only() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -661,7 +659,7 @@ fn test_release_escrow_success_by_operator_all_consumed_fee_only() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -819,7 +817,7 @@ fn test_release_escrow_success_by_operator_partial_consumed() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -977,7 +975,7 @@ fn test_release_escrow_success_by_operator_partial_consumed_used_only() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1135,7 +1133,7 @@ fn test_release_escrow_success_by_operator_partial_consumed_fee_only() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1299,7 +1297,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1461,7 +1459,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms_only_fee_or_
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1623,7 +1621,7 @@ fn test_release_escrow_success_by_operator_partially_consumed_many_denoms() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1874,7 +1872,7 @@ fn test_release_escrow_unauthorized() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -1968,7 +1966,7 @@ fn test_release_escrow_success_by_disabled_operator() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2132,7 +2130,7 @@ fn test_release_escrow_by_non_existent_operator() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2234,7 +2232,7 @@ fn test_release_escrow_success_by_admin_when_operator_not_exists() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2398,7 +2396,7 @@ fn test_release_escrow_success_release_timeout() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2533,7 +2531,7 @@ fn test_release_escrow_success_by_operator_unknown_denom_used_coins() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2632,7 +2630,7 @@ fn test_release_escrow_success_by_operator_unknown_denom_fee_coins() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2731,7 +2729,7 @@ fn test_release_escrow_success_by_operator_known_denom_too_much() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2831,7 +2829,7 @@ fn test_release_escrow_success_by_operator_known_denom_fee_too_much() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -2934,7 +2932,7 @@ fn test_release_escrow_success_by_operator_many_denoms_too_much() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -3038,7 +3036,7 @@ fn test_release_escrow_success_by_operator_many_denoms_fee_too_much() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -3134,7 +3132,7 @@ fn test_release() {
     };
     {
         let mut app_mut = app.app_mut();
-        let a = app_mut
+        app_mut
             .sudo(cw_multi_test::SudoMsg::Bank(
                 cw_multi_test::BankSudo::Mint {
                     to_address: loader.to_string(),
@@ -3163,7 +3161,7 @@ fn test_release() {
 
     let op_controller: Controller = op_controller_addr.to_string().into();
 
-    let res = escrow_contract
+    escrow_contract
         .create_operator("operator1".to_string(), vec![op_controller.clone()])
         .call(&owner)
         .expect("error creating operator");
@@ -3187,7 +3185,7 @@ fn test_release() {
         .expect("error creating escrow");
 
     // Attempt to load
-    let res = escrow_contract
+    escrow_contract
         .load_escrow("escrow1".to_string())
         .with_funds(vec![coin.clone()].as_slice())
         .call(&loader)
@@ -3210,7 +3208,7 @@ fn test_release() {
         amount: 250u128.into(),
     };
 
-    let res = escrow_contract
+    escrow_contract
         .release_escrow(
             "escrow1".to_string(),
             vec![rel_coin.clone()],

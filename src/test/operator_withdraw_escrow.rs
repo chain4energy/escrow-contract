@@ -1,6 +1,4 @@
-use core::time;
-
-use cosmwasm_std::{BlockInfo, Coin, Coins, Timestamp};
+use cosmwasm_std::Coin;
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
 
@@ -11,7 +9,7 @@ use did_contract::{
 
 use crate::{
     contract::sv::mt::{CodeId, EscrowContractProxy},
-    state::{CoinsExt, Escrow, EscrowState, LoadedCoins},
+    state::{Escrow, EscrowState, LoadedCoins},
 };
 
 #[test]
@@ -414,7 +412,7 @@ fn test_withdraw_operator_success_already_withdrawn() {
         .expect("error releasing escrow");
 
     // Withdraw by the loader
-    let res = escrow_contract
+    escrow_contract
         .withdraw("escrow1".to_string())
         .call(&controller_addr)
         .expect("error withdrawing by loader");

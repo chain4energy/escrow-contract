@@ -674,7 +674,7 @@ fn test_create_escrow_success() {
 
     let op_controller: Controller = op_controller_addr.to_string().into();
 
-    let res = escrow_contract
+    escrow_contract
         .create_operator("operator1".to_string(), vec![op_controller.clone()])
         .call(&owner)
         .expect("error creating operator");

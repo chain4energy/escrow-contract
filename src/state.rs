@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::fmt::format;
 
 use crate::error::ContractError;
 use cosmwasm_schema::cw_serde;
@@ -7,7 +6,6 @@ use cosmwasm_std::{Addr, Coin, Coins, Deps, StdError, Storage, Timestamp, Uint12
 use cw_storage_plus::{Index, IndexList, IndexedMap, MultiIndex};
 use did_contract::contract::sv::Querier;
 use did_contract::{contract::DidContract, state::Controller};
-use schemars::gen;
 use sylvia::types::Remote;
 
 #[cw_serde]
@@ -151,11 +149,11 @@ pub struct LoadedCoins {
 pub enum EscrowState {
     Loading,
     Locked,
-
     Released,
     Closed,
     FailedLoadingTimeout,
-    FailedReleaseTimeout
+    FailedReleaseTimeout,
+    FailedReleaseTimeoutWithdrawned
     // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
 }
 
@@ -167,8 +165,9 @@ impl EscrowState {
             EscrowState::Locked => "locked".to_string(),
             EscrowState::Released => "released".to_string(),
             EscrowState::Closed => "closed".to_string(),
-            EscrowState::FailedLoadingTimeout => "failed_loading_timout".to_string(),
-            EscrowState::FailedReleaseTimeout => "failed_release_timout".to_string(),
+            EscrowState::FailedLoadingTimeout => "failed_loading_timeout".to_string(),
+            EscrowState::FailedReleaseTimeout => "failed_release_timeout".to_string(),
+            EscrowState::FailedReleaseTimeoutWithdrawned => "failed_release_timeout_withdrawned".to_string(),
         }
     }
 }
@@ -241,19 +240,6 @@ impl<'a> Escrows for IndexedMap<&'a str, Escrow, EscrowIndexes<'a>> {
     }
 }
 
-pub trait Share {
-    fn ensure_in_range(&self) -> Result<(), ContractError>;
-}
-
-// impl Share for Decimal {
-//     fn ensure_in_range(&self) -> Result<(), ContractError> {
-//         if *self >= Decimal::zero() && *self <= Decimal::one() {
-//             Ok(())
-//         } else {
-//             Err(ContractError::ShareValue)
-//         }
-//     }
-// }
 
 pub trait CoinsExt {
     fn deduplicated_coins(coins: Vec<Coin>) -> Result<Coins, StdError>;
@@ -283,7 +269,6 @@ impl CoinsExt for Coins {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
 
     use super::*;
     use serde_json::{from_str, json, to_string};

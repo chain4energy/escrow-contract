@@ -53,6 +53,9 @@ pub enum ContractError {
     #[error("Escrow error: {0}: {1}")]
     EscrowError(String, StdError),
 
+    #[error("Contract escrow error: should never happened: {0}")]
+    ContractEscrowError(String),
+
     #[error("Escrow has expired: {0}")]
     EscrowExpired(String),
 

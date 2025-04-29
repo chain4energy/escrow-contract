@@ -1,7 +1,7 @@
 use cw_multi_test::IntoAddr;
 use sylvia::multitest::App;
 
-use crate::contract::{sv::mt::{CodeId, EscrowContractProxy}, EscrowContract};
+use crate::contract::sv::mt::{CodeId, EscrowContractProxy};
 
 #[test]
 fn test_set_release_timeout_success() {
