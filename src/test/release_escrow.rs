@@ -153,7 +153,7 @@ fn test_release_escrow_success_by_admin() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -311,7 +311,7 @@ fn test_release_escrow_success_by_operator_none_consumed() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -469,7 +469,7 @@ fn test_release_escrow_success_by_operator_all_consumed() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -627,7 +627,7 @@ fn test_release_escrow_success_by_operator_all_consumed_used_only() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -785,11 +785,11 @@ fn test_release_escrow_success_by_operator_all_consumed_fee_only() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
-            receiver_claimed: false,
+            receiver_claimed: true,
             operator_fee: operator_fee.clone(),
             // receiver_share: receiver_share,
             loader_claimed: true,
@@ -943,7 +943,7 @@ fn test_release_escrow_success_by_operator_partial_consumed() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -1101,7 +1101,7 @@ fn test_release_escrow_success_by_operator_partial_consumed_used_only() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -1259,11 +1259,11 @@ fn test_release_escrow_success_by_operator_partial_consumed_fee_only() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
-            receiver_claimed: false,
+            receiver_claimed: true,
             operator_fee: operator_fee.clone(),
             // receiver_share: receiver_share,
             loader_claimed: false,
@@ -1423,7 +1423,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms() {
             expected_coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
             loaded_coins: Some(LoadedCoins {
                 coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -1585,7 +1585,7 @@ fn test_release_escrow_success_by_operator_all_consumed_many_denoms_only_fee_or_
             expected_coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
             loaded_coins: Some(LoadedCoins {
                 coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -1747,7 +1747,7 @@ fn test_release_escrow_success_by_operator_partially_consumed_many_denoms() {
             expected_coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
             loaded_coins: Some(LoadedCoins {
                 coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -2098,7 +2098,7 @@ fn test_release_escrow_success_by_disabled_operator() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -2364,7 +2364,7 @@ fn test_release_escrow_success_by_admin_when_operator_not_exists() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -2499,7 +2499,7 @@ fn test_release_escrow_success_release_timeout() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -3226,7 +3226,7 @@ fn test_release() {
             operator_id: "operator1".to_string(),
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
-                loader: loader.to_string(),
+                loader: loader.clone(),
                 coins: expected_coins.clone()
             }),
             operator_claimed: false,

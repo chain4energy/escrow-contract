@@ -1,10 +1,11 @@
 use crate::error::ContractError;
+use crate::multiset::MultiSet;
 use crate::state::{
     escrows, CoinsExt, Escrow, EscrowController, EscrowOperator, EscrowState, Escrows, LoadedCoins,
 };
 use cosmwasm_std::{
-    Addr, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order,
-    Response, StdError, Storage, Timestamp, Uint128,
+    Addr, Api, BalanceResponse, Coin, Coins, Deps, Empty, Event, Order, Response, StdError,
+    Storage, Timestamp, Uint128,
 };
 use cosmwasm_std::{BankMsg, CosmosMsg};
 use cosmwasm_std::{BankQuery, QueryRequest};
@@ -27,6 +28,12 @@ pub struct EscrowContract {
     pub operators: Map<String, EscrowOperator>,
     pub load_timeout: Item<Duration>,
     pub release_timeout: Item<Duration>,
+    // pub escrows: Map<String, Escrow>,
+    pub to_withdraw_by_loader: MultiSet,
+    pub to_withdraw_by_receiver: MultiSet,
+    pub to_withdraw_by_operator: MultiSet,
+    pub loaded_by_loader: MultiSet,
+    pub all_by_loader: MultiSet,
     // pub(crate) escrows: escrows()
 }
 
@@ -42,6 +49,12 @@ impl EscrowContract {
             operators: Map::new("operators"),
             load_timeout: Item::new("load_timeout"),
             release_timeout: Item::new("release_timeout"),
+            to_withdraw_by_loader: MultiSet::new("to_withdraw_by_loader"),
+            to_withdraw_by_receiver: MultiSet::new("to_withdraw_by_receiver"),
+            to_withdraw_by_operator: MultiSet::new("to_withdraw_by_operator"),
+            loaded_by_loader: MultiSet::new("loaded_by_loader"),
+            all_by_loader: MultiSet::new("all_by_loader"),
+            // escrows: Map::new("escrows"),
         }
     }
 
@@ -394,7 +407,7 @@ impl EscrowContract {
 
         escrow.loaded_coins = Some(LoadedCoins {
             coins: loaded_coins.to_vec(),
-            loader: ctx.info.sender.to_string(),
+            loader: ctx.info.sender.clone(),
         });
         escrow.lock_timestamp = Some(ctx.env.block.time);
         escrow.state = EscrowState::Locked;
@@ -404,6 +417,8 @@ impl EscrowContract {
         // On error the submessage execution will revert any partial state changes due to this message,
         // but not revert any state changes in the calling contract. If this is required,
         // it must be done manually in the reply entry point.
+        self.save_loaded_by_loader(ctx.deps.storage, &ctx.info.sender, &escrow.id)?;
+        self.save_all_by_loader(ctx.deps.storage, &ctx.info.sender, &escrow.id)?;
 
         let resp = Response::new();
         let event = Event::new("escrow_load")
@@ -456,18 +471,25 @@ impl EscrowContract {
         escrow.state = EscrowState::Released;
         escrow.operator_fee = operator_fee.to_vec();
         let expected = Coins::try_from(escrow.expected_coins.clone())?;
+
         if used_coins == expected {
             escrow.loader_claimed = true
         }
-        let mut uc_empty = true;
-        if !used_coins.is_empty() {
-            for c in &used_coins {
+
+        let mut rc_empty = true;
+        let mut receiver_coins = used_coins.clone();
+        for c in operator_fee.clone() {
+            receiver_coins.sub(c)?;
+        }
+
+        if !receiver_coins.is_empty() {
+            for c in &receiver_coins {
                 if c.amount.gt(&Uint128::zero()) {
-                    uc_empty = false;
+                    rc_empty = false;
                 }
             }
         }
-        if uc_empty {
+        if rc_empty {
             escrow.receiver_claimed = true;
         }
 
@@ -485,6 +507,27 @@ impl EscrowContract {
 
         self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
 
+        if let Some(loaded_coins) = &escrow.loaded_coins {
+            self.loaded_by_loader.remove(
+                ctx.deps.storage,
+                loaded_coins.loader.as_str(),
+                escrow.id.as_str(),
+            );
+            if !escrow.loader_claimed {
+                self.save_to_withdraw_by_loader(
+                    ctx.deps.storage,
+                    &loaded_coins.loader,
+                    &escrow.id,
+                )?;
+            }
+        }
+        if !escrow.receiver_claimed {
+            self.save_to_withdraw_by_receiver(ctx.deps.storage, &escrow.receiver, &escrow.id)?;
+        }
+        if !escrow.operator_claimed {
+            self.save_to_withdraw_by_operator(ctx.deps.storage, &escrow.operator_id, &escrow.id)?;
+        }
+
         let resp = Response::new();
         let event = Event::new("escrow_release")
             .add_attribute("escrow_id", escrow.id.as_str())
@@ -497,7 +540,7 @@ impl EscrowContract {
 
     fn is_loader(&self, escrow: &Escrow, sender: &Addr) -> Result<bool, ContractError> {
         if let Some(l) = &escrow.loaded_coins {
-            if l.loader == sender.to_string() {
+            if l.loader == sender {
                 return Ok(true);
             }
         }
@@ -525,33 +568,43 @@ impl EscrowContract {
             return Err(ContractError::EscowAlreadyWithdrawn);
         }
 
-        if escrow.state == EscrowState::Locked && self.is_release_timeout(ctx.deps.storage, &ctx.env.block.time, &escrow)?{
+        if escrow.state == EscrowState::Locked
+            && self.is_release_timeout(ctx.deps.storage, &ctx.env.block.time, &escrow)?
+        {
             if let Some(l) = &escrow.loaded_coins {
-                if self.is_loader_or_admin(ctx.deps.as_ref(), &escrow, &ctx.info.sender)? {    
-                        let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-                            to_address: l.loader.to_string(),
-                            amount: l.coins.clone(),
-                        });
-                        let mut resp: Response = Response::default();
+                if self.is_loader_or_admin(ctx.deps.as_ref(), &escrow, &ctx.info.sender)? {
+                    let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+                        to_address: l.loader.to_string(),
+                        amount: l.coins.clone(),
+                    });
+                    let mut resp: Response = Response::default();
 
-                        let l_coins = Coins::try_from(l.coins.clone())?;
+                    let l_coins = Coins::try_from(l.coins.clone())?;
 
-                        resp = resp.add_message(msg);
-                        let event = Event::new("escrow_recover_loader")
-                            .add_attribute("escrow_id", escrow.id.as_str())
-                            .add_attribute("amount", l_coins.to_string());
-                        resp = resp.add_event(event);
+                    resp = resp.add_message(msg);
+                    let event = Event::new("escrow_recover_loader")
+                        .add_attribute("escrow_id", escrow.id.as_str())
+                        .add_attribute("amount", l_coins.to_string());
+                    resp = resp.add_event(event);
 
-                        escrow.state = EscrowState::FailedReleaseTimeoutWithdrawned;
-                        
-                        self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
-                        return Ok(resp);
+                    escrow.state = EscrowState::FailedReleaseTimeoutWithdrawned;
+
+                    self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
+                    if let Some(loaded_coins) = &escrow.loaded_coins {
+                        self.loaded_by_loader.remove(
+                            ctx.deps.storage,
+                            loaded_coins.loader.as_str(),
+                            escrow.id.as_str(),
+                        );
+                    }
+                    return Ok(resp);
                 } else {
                     return Err(ContractError::Unauthorized());
                 }
             }
-            return Err(ContractError::ContractEscrowError("no loaded_coins in locked state".to_string()));
-        
+            return Err(ContractError::ContractEscrowError(
+                "no loaded_coins in locked state".to_string(),
+            ));
         }
         escrow.ensure_state(EscrowState::Released)?;
 
@@ -584,6 +637,13 @@ impl EscrowContract {
                     resp = resp.add_event(event);
                     escrow.loader_claimed = true;
                     loader_claimed = true;
+                    if let Some(loaded_coins) = &escrow.loaded_coins {
+                        self.to_withdraw_by_loader.remove(
+                            ctx.deps.storage,
+                            loaded_coins.loader.as_str(),
+                            escrow.id.as_str(),
+                        );
+                    }
                 }
             }
         }
@@ -617,6 +677,11 @@ impl EscrowContract {
                 resp = resp.add_event(event);
                 escrow.receiver_claimed = true;
                 receiver_claimed = true;
+                self.to_withdraw_by_receiver.remove(
+                    ctx.deps.storage,
+                    &escrow.receiver.to_string(),
+                    &escrow.id,
+                );
             }
         }
 
@@ -644,6 +709,11 @@ impl EscrowContract {
                 resp = resp.add_event(event);
                 escrow.operator_claimed = true;
                 operator_claimed = true;
+                self.to_withdraw_by_operator.remove(
+                    ctx.deps.storage,
+                    &escrow.operator_id,
+                    &escrow.id,
+                );
             }
         }
         // }
@@ -745,7 +815,7 @@ impl EscrowContract {
     }
 
     #[sv::msg(query)]
-    pub fn get_escrow_by_operator(
+    pub fn get_escrows_by_operator(
         &self,
         ctx: QueryCtx,
         operator_id: String,
@@ -763,16 +833,222 @@ impl EscrowContract {
             .take(limit)
             .collect();
 
-        match res {
-            Ok(did_document) => Ok(did_document),
-            Err(e) => match e {
-                StdError::NotFound { .. } => Err(ContractError::EscrowOperatorNotFound(e)),
-                _ => Err(ContractError::EscrowOperatorError(
-                    "load operator escrows".to_string(),
-                    e,
-                )),
-            },
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load operator escrows".to_string(), e),
+        })?;
+        Ok(res)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_escrows_by_receiver(
+        &self,
+        ctx: QueryCtx,
+        receiver: Controller,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<_>, _> = escrows()
+            .idx
+            .receiver
+            .prefix(receiver.to_string())
+            .range(ctx.deps.storage, start, None, Order::Ascending)
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load receiver escrows".to_string(), e),
+        })?;
+        Ok(res)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_escrows_by_loader(
+        &self,
+        ctx: QueryCtx,
+        loader: Addr,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<String>, _> = self
+            .all_by_loader
+            .get_values(
+                ctx.deps.storage,
+                loader.as_str(),
+                start,
+                None,
+                Order::Ascending,
+            )
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load loader escrows".to_string(), e),
+        })?;
+
+        let mut result: Vec<(String, Escrow)> = vec![];
+        for id in &res {
+            let escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &id)?;
+            result.push((id.clone(), escrow));
         }
+
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_loaded_escrows_by_loader(
+        &self,
+        ctx: QueryCtx,
+        loader: Addr,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<String>, _> = self
+            .loaded_by_loader
+            .get_values(
+                ctx.deps.storage,
+                loader.as_str(),
+                start,
+                None,
+                Order::Ascending,
+            )
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load loaded loader escrows".to_string(), e),
+        })?;
+
+        let mut result: Vec<(String, Escrow)> = vec![];
+        for id in &res {
+            let escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &id)?;
+            result.push((id.clone(), escrow));
+        }
+
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_escrows_to_withdraw_by_loader(
+        &self,
+        ctx: QueryCtx,
+        loader: Addr,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<String>, _> = self
+            .to_withdraw_by_loader
+            .get_values(
+                ctx.deps.storage,
+                loader.as_str(),
+                start,
+                None,
+                Order::Ascending,
+            )
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load loader to withdraw escrows".to_string(), e),
+        })?;
+
+        let mut result: Vec<(String, Escrow)> = vec![];
+        for id in &res {
+            let escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &id)?;
+            result.push((id.clone(), escrow));
+        }
+
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_escrows_to_withdraw_by_receiver(
+        &self,
+        ctx: QueryCtx,
+        receiver: Controller,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<String>, _> = self
+            .to_withdraw_by_receiver
+            .get_values(
+                ctx.deps.storage,
+                &receiver.to_string(),
+                start,
+                None,
+                Order::Ascending,
+            )
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load receiver to withdraw escrows".to_string(), e),
+        })?;
+
+        let mut result: Vec<(String, Escrow)> = vec![];
+        for id in &res {
+            let escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &id)?;
+            result.push((id.clone(), escrow));
+        }
+
+        Ok(result)
+    }
+
+    #[sv::msg(query)]
+    pub fn get_escrows_to_withdraw_by_operator(
+        &self,
+        ctx: QueryCtx,
+        operator_id: String,
+        limit: Option<usize>,
+        start_after: Option<String>,
+    ) -> Result<Vec<(String, Escrow)>, ContractError> {
+        let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.map(Bound::exclusive);
+
+        let res: Result<Vec<String>, _> = self
+            .to_withdraw_by_operator
+            .get_values(
+                ctx.deps.storage,
+                &operator_id,
+                start,
+                None,
+                Order::Ascending,
+            )
+            .take(limit)
+            .collect();
+
+        let res = res.map_err(|e| match e {
+            StdError::NotFound { .. } => ContractError::EscrowOperatorNotFound(e),
+            _ => ContractError::EscrowError("load receiver to withdraw escrows".to_string(), e),
+        })?;
+
+        let mut result: Vec<(String, Escrow)> = vec![];
+        for id in &res {
+            let escrow = self.ensure_load_escrow_from_storage(ctx.deps.storage, &escrows(), &id)?;
+            result.push((id.clone(), escrow));
+        }
+
+        Ok(result)
     }
 
     fn save_admins(
@@ -1013,6 +1289,61 @@ impl EscrowContract {
             .map_err(|e| ContractError::EscrowError("save escrow".to_string(), e))
     }
 
+    fn save_loaded_by_loader(
+        &self,
+        storage: &mut dyn Storage,
+        loader: &Addr,
+        escrow_id: &str,
+    ) -> Result<(), ContractError> {
+        self.loaded_by_loader
+            .save(storage, loader.as_str(), escrow_id)
+            .map_err(|e| ContractError::EscrowError("save loaded by loader".to_string(), e))
+    }
+
+    fn save_all_by_loader(
+        &self,
+        storage: &mut dyn Storage,
+        loader: &Addr,
+        escrow_id: &str,
+    ) -> Result<(), ContractError> {
+        self.all_by_loader
+            .save(storage, loader.as_str(), escrow_id)
+            .map_err(|e| ContractError::EscrowError("save all by loader".to_string(), e))
+    }
+
+    fn save_to_withdraw_by_loader(
+        &self,
+        storage: &mut dyn Storage,
+        loader: &Addr,
+        escrow_id: &str,
+    ) -> Result<(), ContractError> {
+        self.to_withdraw_by_loader
+            .save(storage, loader.as_str(), escrow_id)
+            .map_err(|e| ContractError::EscrowError("save to withdraw by loader".to_string(), e))
+    }
+
+    fn save_to_withdraw_by_operator(
+        &self,
+        storage: &mut dyn Storage,
+        operator_id: &str,
+        escrow_id: &str,
+    ) -> Result<(), ContractError> {
+        self.to_withdraw_by_operator
+            .save(storage, operator_id, escrow_id)
+            .map_err(|e| ContractError::EscrowError("save to withdraw by operator".to_string(), e))
+    }
+
+    fn save_to_withdraw_by_receiver(
+        &self,
+        storage: &mut dyn Storage,
+        receiver: &Controller,
+        escrow_id: &str,
+    ) -> Result<(), ContractError> {
+        self.to_withdraw_by_receiver
+            .save(storage, receiver.to_string().as_str(), escrow_id)
+            .map_err(|e| ContractError::EscrowError("save to withdraw by receiver".to_string(), e))
+    }
+
     fn ensure_load_load_timeout_from_storage(
         &self,
         storage: &dyn Storage,
@@ -1151,8 +1482,6 @@ mod tests {
 
     // -------------------- Escrow
 
-    
-
     #[test]
     fn get_operator_not_found() {
         let app = App::default();
@@ -1235,7 +1564,7 @@ mod tests {
             .unwrap();
 
         let escrow = "escrow-1";
-        let escrows = escrow_contract.get_escrow_by_operator(escrow.to_string(), None, None);
+        let escrows = escrow_contract.get_escrows_by_operator(escrow.to_string(), None, None);
         assert!(escrows.is_ok(), "Expected Ok, but got an Err");
         assert_eq!(0, escrows.unwrap().len())
     }
@@ -1368,7 +1697,7 @@ mod tests {
         // opertor 1 escrows check
 
         let escrow_operators =
-            escrow_contract.get_escrow_by_operator(operator1.to_string(), None, None);
+            escrow_contract.get_escrows_by_operator(operator1.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());
@@ -1426,7 +1755,7 @@ mod tests {
         // opertor 2 escrows check
 
         let escrow_operators =
-            escrow_contract.get_escrow_by_operator(operator2.to_string(), None, None);
+            escrow_contract.get_escrows_by_operator(operator2.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());
@@ -1484,7 +1813,7 @@ mod tests {
         // opertor 3 escrows check
 
         let escrow_operators =
-            escrow_contract.get_escrow_by_operator(operator3.to_string(), None, None);
+            escrow_contract.get_escrows_by_operator(operator3.to_string(), None, None);
         assert!(escrow_operators.is_ok(), "Expected Ok, but got an Err");
         let escrow_operators = escrow_operators.unwrap();
         assert_eq!(2, escrow_operators.len());

@@ -151,7 +151,7 @@ fn test_withdraw_operator_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -314,7 +314,7 @@ fn test_withdraw_operator_success_many_denoms() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -564,7 +564,7 @@ fn test_withdraw_operator_success_all_used() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -707,7 +707,7 @@ fn test_withdraw_operator_success_all_fee() {
         .get_escrow("escrow1".to_string())
         .expect("error querying escrow");
     assert!(escrow.operator_claimed);
-    assert_eq!(escrow.state, EscrowState::Released);
+    assert_eq!(escrow.state, EscrowState::Closed);
 
     // Verify the escrow is updated
     let escrow = escrow_contract
@@ -721,16 +721,16 @@ fn test_withdraw_operator_success_all_fee() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
-            receiver_claimed: false,
+            receiver_claimed: true,
             operator_fee: operator_fee.clone(),
             // receiver_share: receiver_share,
             loader_claimed: true,
             used_coins: used_coins.clone(),
-            state: EscrowState::Released,
+            state: EscrowState::Closed,
             lock_timestamp: escrow.lock_timestamp,
             create_timestamp: escrow.create_timestamp
         },

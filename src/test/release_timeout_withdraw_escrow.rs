@@ -111,7 +111,7 @@ fn test_withdraw_loader_after_release_timeout_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader.clone(),
             }),
             operator_claimed: false,
             receiver: receiver.clone(),
@@ -179,7 +179,7 @@ fn test_withdraw_loader_after_release_timeout_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,

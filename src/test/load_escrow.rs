@@ -135,7 +135,7 @@ fn test_load_escrow_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -287,7 +287,7 @@ fn test_load_escrow_success_many_denoms() {
             expected_coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
             loaded_coins: Some(LoadedCoins {
                 coins: vec![expected_coins[1].clone(), expected_coins[0].clone()],
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -996,7 +996,7 @@ fn test_load_escrow() {
             operator_id: "operator1".to_string(),
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
-                loader: loader.to_string(),
+                loader: loader,
                 coins: expected_coins.clone()
             }),
             operator_claimed: false,

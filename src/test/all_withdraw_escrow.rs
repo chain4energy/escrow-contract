@@ -377,7 +377,7 @@ fn test_withdraw_all_at_once_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -533,7 +533,7 @@ fn test_withdraw_all_sequence() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader.clone(),
             }),
             operator_claimed: false,
             receiver: receiver.clone(),
@@ -608,7 +608,7 @@ fn test_withdraw_all_sequence() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader.clone(),
             }),
             operator_claimed: false,
             receiver: receiver.clone(),
@@ -686,7 +686,7 @@ fn test_withdraw_all_sequence() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: true,
             receiver: receiver,
@@ -1021,7 +1021,7 @@ fn test_withdraw() {
             operator_id: "operator1".to_string(),
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
-                loader: loader.to_string(),
+                loader: loader.clone(),
                 coins: expected_coins.clone()
             }),
             operator_claimed: false,
@@ -1101,7 +1101,7 @@ fn test_withdraw() {
             operator_id: "operator1".to_string(),
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
-                loader: loader.to_string(),
+                loader: loader.clone(),
                 coins: expected_coins.clone()
             }),
             operator_claimed: true,
@@ -1181,7 +1181,7 @@ fn test_withdraw() {
             operator_id: "operator1".to_string(),
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
-                loader: loader.to_string(),
+                loader: loader,
                 coins: expected_coins.clone()
             }),
             operator_claimed: true,

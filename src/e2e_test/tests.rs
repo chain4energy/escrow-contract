@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmwasm_std::Coin;
+use cw_multi_test::IntoAddr;
 use serde_json::json;
 use serial_test::serial;
 use e2e_test_suite::{derive_private_key_from_mnemonic, error::CosmError, ContractInit, ADDR_PREFIX};
@@ -242,7 +243,7 @@ fn test_full_escrow_process() {
     let escrow: Escrow = serde_json::from_slice(&result.data).expect("CreateEscrow respnse deserialization error");
     let expected_escrow = Escrow {
         loaded_coins: Some(LoadedCoins {
-            loader: loader_address.to_string(),
+            loader: loader_address.clone().into_addr(),
             coins: vec![expected_coins.clone()]
         }),
         state: EscrowState::Locked,

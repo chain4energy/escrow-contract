@@ -151,7 +151,7 @@ fn test_withdraw_receiver_success() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -314,7 +314,7 @@ fn test_withdraw_receiver_success_many_denoms() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,
@@ -564,7 +564,7 @@ fn test_withdraw_receiver_success_all_used() {
             expected_coins: expected_coins.clone(),
             loaded_coins: Some(LoadedCoins {
                 coins: expected_coins.clone(),
-                loader: loader.to_string(),
+                loader: loader,
             }),
             operator_claimed: false,
             receiver: receiver,

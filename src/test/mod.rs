@@ -63,3 +63,6 @@ mod all_withdraw_escrow;
 
 #[cfg(test)]
 mod release_timeout_withdraw_escrow;
+
+#[cfg(test)]
+mod index;

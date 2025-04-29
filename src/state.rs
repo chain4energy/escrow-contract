@@ -134,14 +134,17 @@ impl Escrow {
             (EscrowState::Locked, EscrowState::Locked) => Ok(()),
             (EscrowState::Closed, EscrowState::Closed) => Ok(()),
             (EscrowState::Released, EscrowState::Released) => Ok(()),
-            _ => Err(ContractError::EscrowWrongState{expected: expected_state.state_name(), got: self.state.state_name()}), // Default case, states don't match
+            _ => Err(ContractError::EscrowWrongState {
+                expected: expected_state.state_name(),
+                got: self.state.state_name(),
+            }), // Default case, states don't match
         }
     }
 }
 
 #[cw_serde]
 pub struct LoadedCoins {
-    pub loader: String,
+    pub loader: Addr,
     pub coins: Vec<Coin>,
 }
 
@@ -153,8 +156,7 @@ pub enum EscrowState {
     Closed,
     FailedLoadingTimeout,
     FailedReleaseTimeout,
-    FailedReleaseTimeoutWithdrawned
-    // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
+    FailedReleaseTimeoutWithdrawned, // TODO add LoadFialure - cnfigrabel time for loading tokens, if time passes LoadFialure state is returned
 }
 
 impl EscrowState {
@@ -167,35 +169,23 @@ impl EscrowState {
             EscrowState::Closed => "closed".to_string(),
             EscrowState::FailedLoadingTimeout => "failed_loading_timeout".to_string(),
             EscrowState::FailedReleaseTimeout => "failed_release_timeout".to_string(),
-            EscrowState::FailedReleaseTimeoutWithdrawned => "failed_release_timeout_withdrawned".to_string(),
+            EscrowState::FailedReleaseTimeoutWithdrawned => {
+                "failed_release_timeout_withdrawned".to_string()
+            }
         }
-    }
-}
-
-impl Escrow {
-    fn receiver_state_index(&self) -> String {
-        let mut r = self.receiver.to_string();
-        r.push_str(self.state.state_name().as_str());
-        r
-    }
-
-    fn operator_state_index(&self) -> String {
-        let mut r = self.operator_id.clone();
-        r.push_str(self.state.state_name().as_str());
-        r
     }
 }
 
 pub struct EscrowIndexes<'a> {
     pub operator: MultiIndex<'a, String, Escrow, String>,
     pub receiver: MultiIndex<'a, String, Escrow, String>,
-    pub operator_state: MultiIndex<'a, String, Escrow, String>,
-    pub receiver_state: MultiIndex<'a, String, Escrow, String>,
+    // pub operator_state: MultiIndex<'a, String, Escrow, String>,
+    // pub receiver_state: MultiIndex<'a, String, Escrow, String>,
 }
 
 impl<'a> IndexList<Escrow> for EscrowIndexes<'a> {
     fn get_indexes(&'_ self) -> Box<dyn Iterator<Item = &'_ dyn Index<Escrow>> + '_> {
-        let v: Vec<&dyn Index<Escrow>> = vec![&self.operator];
+        let v: Vec<&dyn Index<Escrow>> = vec![&self.operator, &self.receiver];
         Box::new(v.into_iter())
     }
 }
@@ -212,17 +202,16 @@ pub fn escrows<'a>() -> IndexedMap<&'a str, Escrow, EscrowIndexes<'a>> {
             "escrows",
             "escrow_receiver",
         ),
-
-        operator_state: MultiIndex::new(
-            |_pk, d: &Escrow| d.operator_state_index(),
-            "escrows",
-            "escrow_operator_state",
-        ),
-        receiver_state: MultiIndex::new(
-            |_pk, d: &Escrow| d.receiver_state_index(),
-            "escrows",
-            "escrow_receiver_state",
-        ),
+        // operator_state: MultiIndex::new(
+        //     |_pk, d: &Escrow| d.operator_state_index(),
+        //     "escrows",
+        //     "escrow_operator_state",
+        // ),
+        // receiver_state: MultiIndex::new(
+        //     |_pk, d: &Escrow| d.receiver_state_index(),
+        //     "escrows",
+        //     "escrow_receiver_state",
+        // ),
     };
     IndexedMap::new("escrows", indexes)
 }
@@ -240,6 +229,14 @@ impl<'a> Escrows for IndexedMap<&'a str, Escrow, EscrowIndexes<'a>> {
     }
 }
 
+// impl<'a> Escrows for Map<String, Escrow> {
+//     fn ensure_not_exist(&self, store: &dyn Storage, key: &str) -> Result<(), ContractError> {
+//         if self.has(store, key.to_string()) {
+//             return Err(ContractError::EscrowAlreadyExists);
+//         }
+//         Ok(())
+//     }
+// }
 
 pub trait CoinsExt {
     fn deduplicated_coins(coins: Vec<Coin>) -> Result<Coins, StdError>;
@@ -311,7 +308,7 @@ mod tests {
     #[test]
     fn test_loaded_coins_serialization() {
         let obj = LoadedCoins {
-            loader: "loader".to_string(),
+            loader: Addr::unchecked("loader"),
             coins: vec![Coin::new(123u64, "uc4e")],
         };
         let serialized = serde_json::to_string(&obj).unwrap();
@@ -351,7 +348,7 @@ mod tests {
             operator_id: "op_id".to_string(),
             expected_coins: vec![Coin::new(123u64, "uc4e")],
             loaded_coins: Some(LoadedCoins {
-                loader: "loader".to_string(),
+                loader: Addr::unchecked("loader"),
                 coins: vec![Coin::new(120u64, "uc4e")],
             }),
             operator_claimed: true,
