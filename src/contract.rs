@@ -568,8 +568,6 @@ impl EscrowContract {
             if self.is_loader_or_admin(ctx.deps.as_ref(), &escrow, &ctx.info.sender)? {
                 loader_authorized = true;
                 if !escrow.loader_claimed {
-                    println!("Withdrawing loader check");
-                    println!("Withdrawing - is loader");
                     let mut ec: Coins = Coins::try_from(escrow.expected_coins.clone())?;
                     for c in &escrow.used_coins {
                         ec.sub(c.clone())?;
@@ -603,7 +601,6 @@ impl EscrowContract {
         {
             receiver_authorized = true;
             if !escrow.receiver_claimed {
-                println!("Withdrawing - is receiver");
                 let mut uc: Coins = Coins::try_from(escrow.used_coins.clone())?;
                 for c in escrow.operator_fee.clone() {
                     uc.sub(c)?;
@@ -613,7 +610,6 @@ impl EscrowContract {
                     to_address: ctx.info.sender.to_string(),
                     amount: uc.to_vec(),
                 });
-                println!("Withdrawing - receiver {}", uc.to_vec()[0].amount);
                 resp = resp.add_message(msg);
                 let event = Event::new("escrow_withdraw_receiver")
                     .add_attribute("escrow_id", escrow.id.as_str())
@@ -635,16 +631,11 @@ impl EscrowContract {
             operator_authorized = true;
             if !escrow.operator_claimed {
                 let uc: Coins = Coins::try_from(escrow.operator_fee.clone())?;
-                // for c in receiver_coins {
-                //     uc.sub(c)?;
-                // }
 
-                println!("Withdrawing - is operator");
                 let msg = CosmosMsg::Bank(BankMsg::Send {
                     to_address: ctx.info.sender.to_string(),
                     amount: uc.to_vec(),
                 });
-                println!("Withdrawing - operator {}", uc.to_vec()[0].amount);
 
                 resp = resp.add_message(msg);
                 let event = Event::new("escrow_withdraw_operator")
