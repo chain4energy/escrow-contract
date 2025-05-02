@@ -37,7 +37,6 @@ pub struct EscrowContract {
     // pub(crate) escrows: escrows()
 }
 
-// TODO add ensuring operator is enabled for all operator operation - escrow
 #[entry_points]
 #[contract]
 #[sv::error(ContractError)]
@@ -413,10 +412,6 @@ impl EscrowContract {
         escrow.state = EscrowState::Locked;
 
         self.save_escrow_in_storage(ctx.deps.storage, &escrows, &escrow)?;
-        // TODO ?????? save on success bank send bacause from doc:
-        // On error the submessage execution will revert any partial state changes due to this message,
-        // but not revert any state changes in the calling contract. If this is required,
-        // it must be done manually in the reply entry point.
         self.save_loaded_by_loader(ctx.deps.storage, &ctx.info.sender, &escrow.id)?;
         self.save_all_by_loader(ctx.deps.storage, &ctx.info.sender, &escrow.id)?;
 
@@ -733,27 +728,6 @@ impl EscrowContract {
 
         Ok(resp)
     }
-
-    // #[sv::msg(reply)]
-    // fn reply(&self, ctx: ReplyCtx, reply: Reply) -> Result<Response, ContractError> {
-    //     match reply.id {
-    //         LOAD_ESCROW_BANK_SEND => {
-    //             match reply.result {
-    //                 SubMsgResult::Ok(_) => Ok(Response::default()),
-    //                 SubMsgResult::Err(e) => { // TODO what to do with error string??
-    //                     let escrow: Escrow = from_json(reply.payload)?;
-    //                     let escrows = escrows();
-    //                     if let Err(e) = escrows.save(ctx.deps.storage, &escrow.id.as_str(), &escrow) {
-    //                         return Err(ContractError::EscrowError(e)) // TODO check how to handle it, is send coins rolled back?
-    //                     }
-    //                     Ok(Response::default())
-    //                 }
-    //             }
-    //         }
-    //         _ => Err(ContractError::SomeError), // TODO  specify error
-    //     }
-    // }
-    // -------
 
     #[sv::msg(query)]
     pub fn get_escrow_operator(
