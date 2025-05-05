@@ -24,5 +24,3 @@ cw-multi-test = "2.1.1"
 serde_json = "1.0.128"
 cosmrs = { version = "0.22", features = ["cosmwasm"] }
 serial_test = "3.1"
-e2e-test-suite = { git = "http://gitlab.sce-ovoo.pl/c4e/chain/test/e2e-contract-test/e2e-test-suite.git", tag = "v0.0.1-beta003" }
-# e2e-test-suite = { path = "../../e2e-test/e2e-test-suite" }
