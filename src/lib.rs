@@ -1,5 +1,5 @@
 pub mod contract;
-mod state;
+pub mod state;
 mod error;
 mod multiset;
 
