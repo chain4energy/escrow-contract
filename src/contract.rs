@@ -396,12 +396,6 @@ impl EscrowContract {
         }
         EscrowContract::ensure_coins_as_expected(&ctx.info.funds, escrow.expected_coins.clone())?;
 
-        EscrowContract::ensure_coins_are_on_account(
-            &ctx.info.sender,
-            ctx.deps.querier,
-            &ctx.info.funds,
-        )?;
-
         let loaded_coins = Coins::deduplicated_coins(ctx.info.funds.clone())?;
 
         escrow.loaded_coins = Some(LoadedCoins {

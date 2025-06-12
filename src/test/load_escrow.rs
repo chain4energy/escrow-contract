@@ -305,6 +305,147 @@ fn test_load_escrow_success_many_denoms() {
 }
 
 #[test]
+fn test_load_escrow_with_small_balance_diff() {
+    let app = App::default();
+    let ts1: Timestamp = Timestamp::from_seconds(12324);
+    app.set_block(BlockInfo {
+        height: 1,
+        time: ts1.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+    let escrow_code_id = CodeId::store_code(&app);
+    let did_code_id = DidContractCodeId::store_code(&app);
+
+    let owner = "owner".into_addr();
+    let loader = "loader".into_addr();
+
+    let loader_coin = Coin {
+        denom: "uc4e".to_string(),
+        amount: 1030u128.into(),
+    };
+    {
+        let mut app_mut = app.app_mut();
+        app_mut
+            .sudo(cw_multi_test::SudoMsg::Bank(
+                cw_multi_test::BankSudo::Mint {
+                    to_address: loader.to_string(),
+                    amount: vec![loader_coin],
+                },
+            ))
+            .expect("error sudo");
+    }
+
+    // Instantiate contracts
+    let did_contract: sylvia::multitest::Proxy<'_, cw_multi_test::App, DidContract> =
+        did_code_id.instantiate().call(&owner).unwrap();
+    let escrow_contract = escrow_code_id
+        .instantiate(
+            vec![owner.clone()],
+            did_contract.contract_addr.clone(),
+            60000,
+            5 * 24 * 3600 * 1000,
+        )
+        .call(&owner)
+        .unwrap();
+
+    // Add an operator and create an escrow
+    let controller: Controller = "controller1".into_addr().to_string().into();
+    let operator_id = "operator1".to_string();
+    let receiver: Controller = "receiver1".into_addr().to_string().into();
+    let expected_coins = vec![Coin::new(1000u128, "uc4e")];
+
+    escrow_contract
+        .create_operator(operator_id.clone(), vec![controller.clone()])
+        .call(&owner)
+        .expect("error creating operator");
+
+    escrow_contract
+        .create_escrow(
+            "escrow1".to_string(),
+            operator_id.clone(),
+            receiver.clone(),
+            expected_coins.clone(),
+        )
+        .call(&owner)
+        .expect("error creating escrow");
+    let ts2: Timestamp = Timestamp::from_seconds(12364);
+    app.set_block(BlockInfo {
+        height: 13,
+        time: ts2.clone(),
+        chain_id: "c4e-1".to_string(),
+    });
+    // Load the escrow
+    let res = escrow_contract
+        .load_escrow("escrow1".to_string())
+        .with_funds(expected_coins.as_slice())
+        .call(&loader)
+        .expect("error loading escrow");
+
+    // Validate the response events
+    assert_eq!(res.events.len(), 2);
+
+    assert_eq!(res.events[0].ty, "execute");
+    assert_eq!(res.events[0].attributes[0].key, "_contract_address");
+    assert_eq!(
+        res.events[0].attributes[0].value,
+        escrow_contract.contract_addr.to_string()
+    );
+
+    assert_eq!(res.events[1].ty, "wasm-escrow_load");
+    assert_eq!(res.events[1].attributes.len(), 5);
+    assert_eq!(res.events[1].attributes[0].key, "_contract_address");
+    assert_eq!(
+        res.events[1].attributes[0].value,
+        escrow_contract.contract_addr.to_string()
+    );
+    assert_eq!(res.events[1].attributes[1].key, "escrow_id");
+    assert_eq!(res.events[1].attributes[1].value, "escrow1");
+    assert_eq!(res.events[1].attributes[2].key, "operator_id");
+    assert_eq!(res.events[1].attributes[2].value, operator_id);
+    assert_eq!(res.events[1].attributes[3].key, "loader");
+    assert_eq!(res.events[1].attributes[3].value, loader.to_string());
+    assert_eq!(res.events[1].attributes[4].key, "coins");
+    let dedupl_expected_coins = Coins::deduplicated_coins(expected_coins.clone()).unwrap();
+    assert_eq!(
+        res.events[1].attributes[4].value,
+        dedupl_expected_coins.to_string()
+    );
+
+    // Verify the escrow is created
+    let escrow = escrow_contract
+        .get_escrow("escrow1".to_string())
+        .expect("error querying escrow");
+    assert_eq!(escrow.id, "escrow1");
+    assert_eq!(escrow.operator_id, operator_id);
+    assert_eq!(escrow.receiver, receiver);
+    assert_eq!(escrow.expected_coins, expected_coins);
+    assert_eq!(escrow.state, EscrowState::Locked);
+
+    assert_eq!(
+        Escrow {
+            id: "escrow1".to_string(),
+            operator_id: operator_id,
+            expected_coins: expected_coins.clone(),
+            loaded_coins: Some(LoadedCoins {
+                coins: expected_coins.clone(),
+                loader: loader,
+            }),
+            operator_claimed: false,
+            receiver: receiver,
+            receiver_claimed: false,
+            operator_fee: vec![],
+            // receiver_share: receiver_share,
+            loader_claimed: false,
+            used_coins: vec![],
+            state: EscrowState::Locked,
+            lock_timestamp: Some(ts2),
+            create_timestamp: ts1
+        },
+        escrow
+    )
+}
+
+#[test]
 fn test_load_escrow_not_found() {
     let app = App::default();
     let escrow_code_id = CodeId::store_code(&app);
