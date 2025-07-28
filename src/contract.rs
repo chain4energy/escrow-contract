@@ -15,7 +15,7 @@ use did_contract::contract::DidContract;
 use did_contract::state::{Controller, ToEventData};
 use std::collections::HashSet;
 use std::time::Duration;
-use sylvia::ctx::{ExecCtx, InstantiateCtx, QueryCtx};
+use sylvia::ctx::{ExecCtx, InstantiateCtx, MigrateCtx, QueryCtx};
 use sylvia::types::Remote;
 use sylvia::{contract, entry_points};
 
@@ -79,6 +79,16 @@ impl EscrowContract {
             .save(ctx.deps.storage, &Duration::from_millis(load_timeout))?;
         self.release_timeout
             .save(ctx.deps.storage, &Duration::from_millis(release_timeout))?;
+        Ok(Response::default())
+    }
+
+    // ---- migrate -----
+
+    #[sv::msg(migrate)]
+    pub fn migrate(
+        &self,
+        _ctx: MigrateCtx,
+    ) -> Result<Response, ContractError> {   
         Ok(Response::default())
     }
 
