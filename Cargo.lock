@@ -603,7 +603,7 @@ dependencies = [
 [[package]]
 name = "did-contract"
 version = "0.1.0"
-source = "git+https://github.com/chain4energy/did-contract.git?tag=v0.0.1-beta004#b97b0f4861e38b62485198c2cddc41e7c5b5236a"
+source = "git+https://github.com/chain4energy/did-contract.git?tag=v0.1.0#1871ddbe7b056a73d5d548baa2850566e0a861df"
 dependencies = [
  "constcat",
  "cosmwasm-schema",
