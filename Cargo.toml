@@ -2,6 +2,9 @@
 name = "escrow-contract"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+authors = ["Chain4Energy"]
+repository = "https://github.com/chain4energy/escrow-contract"
 
 [lib]
 crate-type = ["cdylib"]
